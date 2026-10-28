@@ -21,7 +21,12 @@ the browser just detaches, so whatever's running keeps going.
   shows them. [How it works](docs/plan-usage.md).
 - **Touch friendly.** A drawer sidebar on phones and a key bar with esc, tab,
   ctrl, arrows and the other keys iOS lacks. Drag a finger to scroll back
-  (with momentum; tmux's `mouse on` needed), then **Back to live**.
+  (with momentum; tmux's `mouse on` needed), then **Back to live**. iOS
+  dictation types cleanly.
+- **Attach files from anywhere.** The key bar's paperclip (or a drop or an
+  image paste on desktop) uploads a file to the Mac and types its path, so
+  Claude can see a screenshot from your phone. Uploads go to
+  `.thunder/uploads/` (max 25 MB) and are cleared after a week.
 - **Self-healing.** Terminals reconnect after a blip; pages reload when the
   server restarts.
 

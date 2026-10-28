@@ -12,7 +12,7 @@ restarts when you save it.
 | `TV_ALLOWED_LOGINS` | _(anyone on tailnet)_  | Comma-separated Tailscale logins allowed in          |
 | `TMUX_BIN`          | `tmux`                 | tmux binary (set when PATH is minimal, e.g. launchd) |
 | `CLAUDE_BIN`        | _(see purpose)_        | `claude` for jobs and the plan usage check ([jobs])  |
-| `TV_DATA_DIR`       | `.thunder/` (here)     | Scheduled jobs and their run logs                    |
+| `TV_DATA_DIR`       | `.thunder/` (here)     | Scheduled jobs, run logs, uploads                    |
 | `TV_LAUNCHD_LABEL`  | `local.thunder-vision` | launchd label used by `scripts/install-launchd.sh`   |
 
 [sec]: ../README.md#security

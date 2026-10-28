@@ -49,10 +49,12 @@ lives on.
   starting, stopping and pruning runs; `scheduler.ts`: a 20s tick in
   `server.ts` that starts due runs; `job-runner.ts`: one detached process per
   run (timeout, Claude's stream-json → readable log); `log-tail.ts`: `/ws/log`
+- `src/server/uploads.ts`: files from the paperclip, saved under
+  `.thunder/uploads/` with shell-safe names and pruned after a week
 - `src/lib/jobs.ts`: job types, schedule presets ↔ cron, shared with the UI
 - `src/lib/names.ts`: session naming, shared by the palette preview and the
   server; `src/lib/protocol.ts`: WebSocket messages and close codes
-- `src/app/api/`: `sessions`, `dirs`, `usage`, `jobs` and `runs` routes
+- `src/app/api/`: `sessions`, `dirs`, `usage`, `jobs`, `runs` and `uploads` routes
 - `src/components/`: `thunder-vision.tsx` (shell, polling, dialogs),
   `session-sidebar.tsx`, `settings-menu.tsx`, `usage-meters.tsx`,
   `new-session-palette.tsx`, `rename-dialog.tsx`, `terminal-pane.tsx`,
@@ -88,6 +90,7 @@ Mutating calls take JSON and need a same-origin `Origin` header.
 | `POST /api/runs`          | `{job}` (run now)                               | `{run, runs}`           |
 | `PATCH /api/runs`         | `{job, run}` (stop)                             | `{runs}`                |
 | `DELETE /api/runs`        | `{job, run?}` (one, or all finished)            | `{runs}`                |
+| `POST /api/uploads`       | the file as the body, `X-File-Name` header      | `{path}` on this Mac    |
 
 `dir` is relative to `TV_ROOT`, or a `~/…` / absolute path. Errors come back as
 `{error}` with 400 (bad folder, git failure), 403 (cross-site, unknown host),

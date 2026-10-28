@@ -6,8 +6,9 @@ import {
   ArrowRight,
   ArrowUp,
   CornerDownLeft,
+  Paperclip,
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import { cn } from "@/lib/utils";
 
 /** Keys an on-screen keyboard can't send, tuned for driving Claude Code. */
@@ -27,16 +28,44 @@ type Props = {
   ctrl: boolean;
   onToggleCtrl(): void;
   onKey(seq: string): void;
+  /** Files picked with the paperclip, to upload and type the paths of. */
+  onAttach(files: File[]): void;
 };
 
 const keyClass =
   "flex h-9 min-w-11 shrink-0 items-center justify-center rounded-md border bg-card px-2.5 font-mono text-xs text-card-foreground shadow-xs active:bg-accent [&_svg]:size-4";
 
-export function KeyBar({ ctrl, onToggleCtrl, onKey }: Props) {
+export function KeyBar({ ctrl, onToggleCtrl, onKey, onAttach }: Props) {
+  const fileRef = useRef<HTMLInputElement>(null);
   // preventDefault on pointerdown keeps focus in the terminal, so the
   // on-screen keyboard stays up while tapping these.
   return (
     <div className="flex gap-1.5 overflow-x-auto border-t bg-background/95 px-2 py-1.5 pb-[max(0.375rem,env(safe-area-inset-bottom))] [scrollbar-width:none]">
+      <input
+        ref={fileRef}
+        type="file"
+        multiple
+        hidden
+        onChange={(e) => {
+          const files = Array.from(e.target.files ?? []);
+          e.target.value = "";
+          if (files.length) onAttach(files);
+        }}
+      />
+      <button
+        type="button"
+        title="Attach a file (uploads it and types its path)"
+        aria-label="Attach a file"
+        onPointerDown={(e) => e.preventDefault()}
+        onClick={() => fileRef.current?.click()}
+        className={keyClass}
+      >
+        <Paperclip />
+      </button>
+      <span
+        aria-hidden
+        className="mx-0.5 w-px shrink-0 self-stretch bg-border"
+      />
       <button
         type="button"
         title="Ctrl (applies to the next key)"

@@ -49,6 +49,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { UsageMeters, useUsage } from "@/components/usage-meters";
 import type { Job, JobSummary } from "@/lib/jobs";
 import { notify, subscribe, usePref } from "@/lib/prefs";
+import { shellPath, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 import type { TmuxSession } from "@/server/tmux";
 
@@ -108,6 +109,8 @@ export function ThunderVision({
   const [ctrl, setCtrl] = useState(false);
   const ctrlRef = useRef(false);
   const panes = useRef(new Map<string, PaneHandle>());
+  // A file is being dragged over the terminal.
+  const [dropping, setDropping] = useState(false);
 
   // Touch devices default to the key bar, and phones to smaller text.
   const [fontSize, setFontSize] = usePref<number>("tv:fontSize", 12, () =>
@@ -303,6 +306,71 @@ export function ThunderVision({
     panes.current.get(active)?.send(seq);
   };
 
+  /**
+   * Uploads files to this Mac and types their paths into the session, as
+   * dragging a file into a local terminal would. Claude Code attaches an
+   * image when it sees its path.
+   */
+  const attach = async (files: File[]) => {
+    const target = active;
+    if (!target || !files.length) return;
+    const abort = new AbortController();
+    const total = files.reduce((n, f) => n + f.size, 0) || 1;
+    const sent = files.map(() => 0);
+    const what = files.length === 1 ? files[0].name : `${files.length} files`;
+    const id = toast.loading(`Uploading ${what}`);
+    const show = () =>
+      toast.loading(
+        `Uploading ${what} ${Math.round((sent.reduce((a, b) => a + b, 0) / total) * 100)}%`,
+        { id, action: { label: "Cancel", onClick: () => abort.abort() } },
+      );
+    show();
+    try {
+      const paths = await Promise.all(
+        files.map((f, i) =>
+          uploadFile(
+            f,
+            (fraction) => {
+              sent[i] = fraction * f.size;
+              show();
+            },
+            abort.signal,
+          ),
+        ),
+      );
+      toast.dismiss(id);
+      const pane = panes.current.get(target);
+      pane?.send(`${paths.map(shellPath).join(" ")} `);
+      if (!isTouch()) pane?.focus();
+    } catch (err) {
+      abort.abort();
+      if (err instanceof DOMException && err.name === "AbortError") {
+        toast.dismiss(id);
+      } else {
+        toast.error(err instanceof Error ? err.message : "Upload failed", {
+          id,
+        });
+      }
+    }
+  };
+
+  // Pasting an image (a screenshot, say) into a terminal uploads it, like
+  // the paperclip. Text wins when there's both, as when copying from a doc.
+  const onPaste = useEffectEvent((e: ClipboardEvent) => {
+    const files = Array.from(e.clipboardData?.files ?? []);
+    const inTerminal = (e.target as Element | null)?.closest?.(".xterm");
+    if (!inTerminal || !files.length || e.clipboardData?.getData("text")) {
+      return;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+    attach(files);
+  });
+  useEffect(() => {
+    window.addEventListener("paste", onPaste, true);
+    return () => window.removeEventListener("paste", onPaste, true);
+  }, []);
+
   const bumpFont = (delta: number) =>
     setFontSize(Math.min(MAX_FONT, Math.max(MIN_FONT, fontSize + delta)));
 
@@ -470,7 +538,31 @@ export function ThunderVision({
           </div>
         </header>
 
-        <main className="flex min-h-0 flex-1 flex-col bg-terminal">
+        <main
+          className="relative flex min-h-0 flex-1 flex-col bg-terminal"
+          onDragOver={(e) => {
+            if (!active || !e.dataTransfer.types.includes("Files")) return;
+            e.preventDefault();
+            e.dataTransfer.dropEffect = "copy";
+            setDropping(true);
+          }}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
+              setDropping(false);
+            }
+          }}
+          onDrop={(e) => {
+            if (!dropping) return;
+            e.preventDefault();
+            setDropping(false);
+            attach(Array.from(e.dataTransfer.files));
+          }}
+        >
+          {dropping && (
+            <div className="pointer-events-none absolute inset-3 z-20 flex items-center justify-center rounded-lg border-2 border-dashed border-primary/60 bg-background/70 text-sm text-foreground">
+              Drop to upload and type its path
+            </div>
+          )}
           {activeJob && (
             <JobView
               key={activeJob.id}
@@ -512,6 +604,7 @@ export function ThunderVision({
             ctrl={ctrl}
             onToggleCtrl={() => setCtrlArmed(!ctrl)}
             onKey={sendKey}
+            onAttach={attach}
           />
         )}
       </div>
