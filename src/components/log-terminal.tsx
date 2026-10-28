@@ -12,17 +12,24 @@ import { touchScroll } from "@/lib/touch-scroll";
 
 type Status = "connecting" | "live" | "done" | "missing" | "retrying";
 
+const RETRY_MIN_MS = 1500;
+const RETRY_MAX_MS = 30_000;
+
 /**
- * A run's output.log, read-only: the whole log so far, then new lines as
- * they land. Not a tmux pane; selecting text copies it on release.
+ * A run's output.log, read-only: the whole log so far (or one step's part of
+ * it), then new lines as they land. Not a tmux pane; selecting text copies
+ * it on release.
  */
 export function LogTerminal({
-  jobId,
+  workflowId,
   runId,
+  step,
   fontSize,
 }: {
-  jobId: string;
+  workflowId: string;
   runId: string;
+  /** Index into run.steps; all of them when left out. */
+  step?: number;
   fontSize: number;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -100,14 +107,26 @@ export function LogTerminal({
       // Finger drags scroll with momentum, like the session terminals.
       touchScroll(el, term, listen.signal);
 
-      const connect = () => {
+      // Backs off while the server keeps refusing or dropping it, so a
+      // broken log can't spin; a socket that opens resets it.
+      let retryMs = RETRY_MIN_MS;
+      const connect = (again = false) => {
         const proto = location.protocol === "https:" ? "wss" : "ws";
-        const qs = new URLSearchParams({ job: jobId, run: runId });
+        const qs = new URLSearchParams({ workflow: workflowId, run: runId });
+        if (step !== undefined) qs.set("step", String(step));
         const socket = new WebSocket(
           `${proto}://${location.host}/ws/log?${qs}`,
         );
         ws = socket;
-        socket.onopen = () => setStatus("live");
+        socket.onopen = () => {
+          retryMs = RETRY_MIN_MS;
+          // The log is sent again from the top; keep the old one until then.
+          if (again) {
+            term.reset();
+            term.write("\x1b[?25l");
+          }
+          setStatus("live");
+        };
         socket.onmessage = (e) => term.write(e.data);
         socket.onclose = (e) => {
           if (disposed || ws !== socket) return;
@@ -115,11 +134,8 @@ export function LogTerminal({
           if (e.code === CLOSE.NO_SESSION) return setStatus("missing");
           // Dropped mid-run (server restart, phone asleep): start over.
           setStatus("retrying");
-          retryTimer = setTimeout(() => {
-            term.reset();
-            term.write("\x1b[?25l");
-            connect();
-          }, 1500);
+          retryTimer = setTimeout(() => connect(true), retryMs);
+          retryMs = Math.min(retryMs * 2, RETRY_MAX_MS);
         };
       };
 
@@ -149,7 +165,7 @@ export function LogTerminal({
       termRef.current = null;
       fitRef.current = null;
     };
-  }, [jobId, runId]);
+  }, [workflowId, runId, step]);
 
   useEffect(() => {
     const term = termRef.current;

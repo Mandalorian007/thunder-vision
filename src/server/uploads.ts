@@ -6,7 +6,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import path from "node:path";
-import { DATA_DIR } from "./jobs";
+import { DATA_DIR } from "./data";
 
 /** Files sent from a phone or tablet, so a session on this Mac can read them. */
 export const UPLOADS_DIR = path.join(DATA_DIR, "uploads");

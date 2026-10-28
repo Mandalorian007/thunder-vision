@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Plus } from "lucide-react";
+import { GitPullRequest, Plus, Workflow } from "lucide-react";
 import { IconButton } from "@/components/icon-button";
 import { RunDot, RunStrip, untilLabel, useNow } from "@/components/run-dots";
 import { SidebarSection } from "@/components/sidebar-section";
@@ -9,54 +9,62 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { describeSchedule, type JobSummary } from "@/lib/jobs";
+import {
+  describeSchedule,
+  prLabel,
+  type WorkflowSummary,
+} from "@/lib/workflows";
 import { cn } from "@/lib/utils";
 
-/** The sidebar's Jobs section: name, next run, and the last runs as dots. */
-export function JobList({
-  jobs,
+/** "my-app", or a local workflow's folder. */
+export const whereLabel = (w: WorkflowSummary) => w.repo ?? w.dir;
+
+/** Right of the name: the step it's on, the next run, manual or paused. */
+function nextLabel(w: WorkflowSummary, now: number | null) {
+  if (w.progress) return `${w.progress.step + 1}/${w.progress.of}`;
+  if (w.error) return "invalid";
+  if (!w.schedule) return "manual";
+  if (!w.enabled) return "paused";
+  return w.nextRunAt && now !== null ? untilLabel(w.nextRunAt, now) : "";
+}
+
+/** The sidebar's Workflows section: name, where, next run, the last runs. */
+export function WorkflowList({
+  workflows,
   active,
   onSelect,
   onNew,
   collapsed = false,
 }: {
-  jobs: JobSummary[];
+  workflows: WorkflowSummary[];
   active: string | null;
   onSelect(id: string): void;
   onNew(): void;
   collapsed?: boolean;
 }) {
   const now = useNow();
-  const next = (j: JobSummary) =>
-    !j.enabled
-      ? "paused"
-      : j.recent.at(-1)?.status === "running"
-        ? "running"
-        : j.nextRunAt && now !== null
-          ? untilLabel(j.nextRunAt, now)
-          : "";
 
   if (collapsed) {
     return (
       <div className="flex flex-col items-center gap-1 border-t border-sidebar-border pt-2">
-        {jobs.map((j) => {
-          const last = j.recent.at(-1);
+        {workflows.map((w) => {
+          const last = w.recent.at(-1);
           return (
-            <Tooltip key={j.id}>
+            <Tooltip key={w.id}>
               <TooltipTrigger asChild>
                 <button
-                  aria-label={j.name}
-                  aria-current={j.id === active}
-                  onClick={() => onSelect(j.id)}
+                  aria-label={w.name}
+                  aria-current={w.id === active}
+                  onClick={() => onSelect(w.id)}
                   className={cn(
                     "relative flex size-10 shrink-0 items-center justify-center rounded-md transition-colors",
-                    j.id === active
+                    w.id === active
                       ? "bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-primary/50"
                       : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
-                    !j.enabled && "opacity-50",
+                    w.schedule && !w.enabled && "opacity-50",
                   )}
                 >
-                  <CalendarClock className="size-4" />
+                  <Workflow className="size-4" />
                   {last && (
                     <span className="absolute top-1 right-1">
                       <RunDot status={last.status} />
@@ -66,24 +74,26 @@ export function JobList({
               </TooltipTrigger>
               <TooltipContent side="right" className="text-xs">
                 <div className="space-y-1">
-                  <div className="font-semibold">{j.name}</div>
+                  <div className="font-semibold">{w.name}</div>
                   <div className="opacity-70">
-                    {describeSchedule(j.schedule)}
-                    {next(j) && ` · ${next(j)}`}
+                    {whereLabel(w)} · {describeSchedule(w.schedule)}
+                    {w.schedule &&
+                      nextLabel(w, now) &&
+                      ` · ${nextLabel(w, now)}`}
                   </div>
-                  {j.recent.length > 0 && <RunStrip runs={j.recent} />}
+                  {w.recent.length > 0 && <RunStrip runs={w.recent} />}
                 </div>
               </TooltipContent>
             </Tooltip>
           );
         })}
         <IconButton
-          label="New job"
+          label="New workflow"
           side="right"
           onClick={onNew}
           className="size-10 shrink-0 border border-dashed border-sidebar-border"
         >
-          <CalendarClock />
+          <Workflow />
         </IconButton>
       </div>
     );
@@ -91,33 +101,35 @@ export function JobList({
 
   return (
     <SidebarSection
-      id="jobs"
-      title="Scheduled Jobs"
-      count={jobs.length}
+      id="workflows"
+      title="Workflows"
+      count={workflows.length}
       action={
-        <IconButton label="New job" onClick={onNew} className="size-7">
+        <IconButton label="New workflow" onClick={onNew} className="size-7">
           <Plus />
         </IconButton>
       }
     >
       <ul className="flex flex-col gap-px px-2 pb-2">
-        {jobs.length === 0 && (
+        {workflows.length === 0 && (
           <li>
             <button
               onClick={onNew}
               className="w-full rounded-md px-3 py-1.5 text-left text-xs text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground pointer-coarse:py-2.5"
             >
-              Run Claude or a command on a schedule.
+              Chain shell steps and Claude, by hand or on a schedule.
             </button>
           </li>
         )}
-        {jobs.map((j) => {
-          const selected = j.id === active;
+        {workflows.map((w) => {
+          const selected = w.id === active;
+          const label = nextLabel(w, now);
+          const dim = !!w.error || (!!w.schedule && !w.enabled);
           return (
-            <li key={j.id}>
+            <li key={w.id}>
               <button
                 aria-current={selected}
-                onClick={() => onSelect(j.id)}
+                onClick={() => onSelect(w.id)}
                 className={cn(
                   "relative flex w-full flex-col gap-0.5 rounded-md py-1 pr-2.5 pl-3 text-left transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:py-2",
                   selected
@@ -132,23 +144,43 @@ export function JobList({
                   <span
                     className={cn(
                       "min-w-0 flex-1 truncate text-[13px] leading-5",
-                      !j.enabled && "text-muted-foreground",
+                      dim && "text-muted-foreground",
                     )}
                   >
-                    {j.name}
+                    {w.name}
                   </span>
                   <span
                     className={cn(
                       "shrink-0 text-[11px] tabular-nums",
-                      next(j) === "running"
+                      w.progress
                         ? "text-bolt"
-                        : "text-muted-foreground",
+                        : w.error
+                          ? "text-destructive"
+                          : "text-muted-foreground",
                     )}
                   >
-                    {next(j)}
+                    {label}
                   </span>
                 </span>
-                <RunStrip runs={j.recent} />
+                <span className="flex w-full items-center gap-2 text-[11px] text-muted-foreground">
+                  <span className="min-w-0 flex-1 truncate font-mono">
+                    {whereLabel(w)}
+                  </span>
+                  {w.progress && (
+                    <span className="max-w-[45%] shrink-0 truncate text-bolt">
+                      {w.progress.id}
+                    </span>
+                  )}
+                </span>
+                <span className="flex w-full items-center gap-2">
+                  <RunStrip runs={w.recent} className="min-w-0" />
+                  {w.lastPr && (
+                    <span className="ml-auto flex shrink-0 items-center gap-0.5 text-[11px] text-muted-foreground">
+                      <GitPullRequest className="size-3" />
+                      {prLabel(w.lastPr).replace(/^PR /, "")}
+                    </span>
+                  )}
+                </span>
               </button>
             </li>
           );

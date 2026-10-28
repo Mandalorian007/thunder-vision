@@ -1,5 +1,7 @@
 import os from "node:os";
+import path from "node:path";
 import { query, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
+import { DATA_DIR, readJson, writeJson } from "./data";
 
 export type UsageWindow = {
   /** 0–100. */
@@ -35,8 +37,13 @@ const RETRY_MS = 60_000;
 const FORCE_GAP_MS = 30_000;
 const TIMEOUT_MS = 20_000;
 
-let last: Usage | null = null;
-let nextCheck = 0;
+/** The last good check, so a server restart doesn't blank the meters. */
+const CACHE_FILE = path.join(DATA_DIR, "usage.json");
+
+const cached = readJson<Usage>(CACHE_FILE);
+let last = typeof cached?.updatedAt === "number" ? cached : null;
+// Picks up the hourly schedule where the last good check left it.
+let nextCheck = last ? nextHour(last.updatedAt) : 0;
 let lastAttempt = 0;
 let inflight: Promise<Usage | null> | null = null;
 
@@ -53,6 +60,12 @@ function toWindow(
 const idle: AsyncIterable<SDKUserMessage> = {
   [Symbol.asyncIterator]: () => ({ next: () => new Promise(() => {}) }),
 };
+
+/**
+ * A check that came back without the limits it had before (the experimental
+ * call hiccuped) is a failure, not news; API-key logins never have them.
+ */
+const hasLimits = (u: Usage) => u.session !== null || u.week !== null;
 
 /** What /usage shows, asked of Claude Code itself (it holds the login). */
 async function fetchUsage(): Promise<Usage | null> {
@@ -111,12 +124,23 @@ export async function getUsage(force = false): Promise<Usage | null> {
       return null;
     })
     .then((next) => {
-      if (next) nextCheck = nextHour(Date.now());
-      // A failed fetch keeps showing the last good numbers.
-      return (last = next ?? last);
+      if (next && last && hasLimits(last) && !hasLimits(next)) {
+        console.error(
+          "usage: check came back without limits; keeping the last",
+        );
+        next = null;
+      }
+      // A failed check keeps the last good numbers and when they were taken.
+      if (!next) return last;
+      nextCheck = nextHour(Date.now());
+      try {
+        writeJson(CACHE_FILE, next);
+      } catch {}
+      return (last = next);
     })
     .finally(() => (inflight = null));
-  const usage = await inflight;
+  // A background check doesn't hold up the page when there's something to show.
+  const usage = force || !last ? await inflight : last;
   return usage && withResets(usage);
 }
 

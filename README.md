@@ -13,10 +13,11 @@ the browser just detaches, so whatever's running keeps going.
 - **Busy dots** pulse while a session is printing, i.e. Claude is mid-turn.
 - **New session palette** (⌘K): pick a folder, type a new name or path, or
   paste a git URL to clone. Optionally run a start command like `claude`.
-- **Scheduled jobs**: run Claude (`claude -p`, often a custom slash command)
-  or a shell command in a folder on a schedule. Green and red dots for recent
-  runs, a live log, the final message, and "continue in session" to pick a
-  run up in Claude. [Details](docs/jobs.md).
+- **Workflows**: shell steps in a YAML file, by hand or on a schedule, with
+  `tv-claude` for headless Claude. Chain plan → build → review → PR, each
+  run in its own git worktree. A step timeline, live logs, a summary, outputs
+  like the PR link, and "continue in session" to pick a failed run up in
+  Claude. [Details](docs/workflows.md).
 - **Plan usage** in the sidebar: your session and weekly caps, as `/usage`
   shows them. [How it works](docs/plan-usage.md).
 - **Touch friendly.** A drawer sidebar on phones and a key bar with esc, tab,
@@ -26,7 +27,7 @@ the browser just detaches, so whatever's running keeps going.
 - **Attach files from anywhere.** The key bar's paperclip (or a drop or an
   image paste on desktop) uploads a file to the Mac and types its path, so
   Claude can see a screenshot from your phone. Uploads go to
-  `.thunder/uploads/` (max 25 MB) and are cleared after a week.
+  `~/.thunder-vision/uploads/` (max 25 MB) and are cleared after a week.
 - **Self-healing.** Terminals reconnect after a blip; pages reload when the
   server restarts.
 
@@ -89,7 +90,7 @@ This is a shell with no login of its own. Tailscale is the lock:
 ## Docs
 
 - [Configuration](docs/configuration.md): settings, launchd, updating
-- [Scheduled jobs](docs/jobs.md): schedules, runs, timeouts, files
+- [Workflows](docs/workflows.md): the file format, steps, worktrees, schedules
 - [Plan usage](docs/plan-usage.md): where the numbers come from
 - [Development](docs/development.md): architecture, API, workflow
 - [Troubleshooting](docs/troubleshooting.md)

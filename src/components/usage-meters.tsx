@@ -1,7 +1,13 @@
 "use client";
 
 import { RotateCw } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,6 +15,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { subscribe } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
 import type { Usage, UsageWindow } from "@/server/usage";
 
@@ -18,13 +25,51 @@ import type { Usage, UsageWindow } from "@/server/usage";
  */
 const POLL_MS = 30_000;
 
+/** The last numbers this device saw, so a reload shows them straight away. */
+const CACHE_KEY = "tv:usage";
+
+function readCache() {
+  try {
+    return localStorage.getItem(CACHE_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function parseCache(raw: string | null): Usage | null {
+  try {
+    const u = JSON.parse(raw ?? "null");
+    return typeof u?.updatedAt === "number" ? u : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Plan usage; undefined until the first answer, null if unavailable.
  * `refresh` asks the server to check now; the next check is still on the hour.
  */
 export function useUsage() {
-  const [usage, setUsage] = useState<Usage | null | undefined>(undefined);
+  const [fetched, setFetched] = useState<Usage | null | undefined>(undefined);
+  const cacheRaw = useSyncExternalStore(subscribe, readCache, () => null);
+  const cached = useMemo(() => parseCache(cacheRaw), [cacheRaw]);
   const [refreshing, setRefreshing] = useState(false);
+  // Only ever replaced by numbers at least as new: a failed check, a server
+  // that just restarted or an empty answer leaves what's shown alone.
+  const setUsage = useCallback((next: Usage | null) => {
+    setFetched((prev) => {
+      if (!next) return prev ?? null;
+      if (prev && prev.updatedAt > next.updatedAt) return prev;
+      try {
+        localStorage.setItem(CACHE_KEY, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }, []);
+  const usage =
+    fetched && cached && cached.updatedAt > fetched.updatedAt
+      ? cached
+      : (fetched ?? cached ?? fetched);
   useEffect(() => {
     let stopped = false;
     const refresh = async () => {
@@ -43,7 +88,7 @@ export function useUsage() {
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [setUsage]);
 
   const refresh = useCallback(async () => {
     setRefreshing(true);
@@ -61,7 +106,7 @@ export function useUsage() {
     } finally {
       setRefreshing(false);
     }
-  }, []);
+  }, [setUsage]);
 
   return { usage, refresh, refreshing };
 }

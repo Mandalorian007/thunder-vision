@@ -19,10 +19,16 @@ The server asks Claude Code itself, through the
   be up to an hour behind `/usage`; the header says when they were checked.
 - The refresh button by the plan name checks straight away (at most once every
   30 seconds, however many pages ask), and the next check is still on the
-  hour. Restarting the server also checks straight away.
-- A failed check retries after a minute. Meanwhile the last numbers stay up,
-  and "checked … ago" turns amber once they're over 70 minutes old. A window
-  whose reset time passes drops to 0% within 30 seconds.
+  hour.
+- The last good check is saved to `~/.thunder-vision/usage.json`, so a
+  server restart shows it straight away and keeps the hourly schedule (it
+  checks at once only if the hour has already turned). Each browser keeps a
+  copy too, so a reload never blanks the meters.
+- A failed check changes nothing: the last numbers and their "checked" time
+  stay up, and it retries after a minute. So does a check that comes back
+  without the caps it had before. "Checked … ago" turns amber once the
+  numbers are over 70 minutes old. A window whose reset time passes drops to
+  0% within 30 seconds.
 
 ## Setup
 

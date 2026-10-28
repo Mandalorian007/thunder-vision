@@ -1,13 +1,13 @@
 "use client";
 
 import {
-  CalendarClock,
   Keyboard,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
   TerminalSquare,
+  Workflow,
 } from "lucide-react";
 import {
   useCallback,
@@ -19,11 +19,9 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { IconButton, type TooltipSide } from "@/components/icon-button";
-import { JobDialog } from "@/components/job-dialog";
-import { JobList } from "@/components/job-list";
-import { JobView } from "@/components/job-view";
 import { KeyBar } from "@/components/key-bar";
 import { NewSessionPalette } from "@/components/new-session-palette";
+import { NewWorkflowDialog } from "@/components/new-workflow-dialog";
 import { RenameDialog } from "@/components/rename-dialog";
 import {
   BUSY_SECONDS,
@@ -47,7 +45,9 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { UsageMeters, useUsage } from "@/components/usage-meters";
-import type { Job, JobSummary } from "@/lib/jobs";
+import { WorkflowList } from "@/components/workflow-list";
+import { WorkflowView } from "@/components/workflow-view";
+import type { WorkflowSummary } from "@/lib/workflows";
 import { notify, subscribe, usePref } from "@/lib/prefs";
 import { shellPath, uploadFile } from "@/lib/upload";
 import { cn } from "@/lib/utils";
@@ -74,19 +74,37 @@ function setHash(name: string) {
 
 const isTouch = () => matchMedia("(pointer: coarse)").matches;
 
-/** "#job:<id>" or "#job:<id>/<run>". Colons can't be in a tmux session name. */
-function parseJobHash(hash: string | null) {
-  if (!hash?.startsWith("job:")) return null;
-  const [id, run] = hash.slice(4).split("/");
+/**
+ * At most one reload per RELOAD_GAP_MS, per tab, so a server that keeps
+ * restarting (a run of saves, a crash loop) can't keep the page reloading.
+ * Until then the page stays up and polls; the reload happens after the gap.
+ */
+const RELOAD_GAP_MS = 15_000;
+function reloadAllowed() {
+  try {
+    const last = Number(sessionStorage.getItem("tv:reloadedAt")) || 0;
+    if (Date.now() - last < RELOAD_GAP_MS) return false;
+    sessionStorage.setItem("tv:reloadedAt", String(Date.now()));
+  } catch {}
+  return true;
+}
+
+/** "#wf:<id>" or "#wf:<id>/<run>". Colons can't be in a tmux session name. */
+function parseWorkflowHash(hash: string | null) {
+  if (!hash?.startsWith("wf:")) return null;
+  const [id, run] = hash.slice(3).split("/");
   return { id, run: run || null };
 }
 
 export function ThunderVision({
   initialSessions,
-  initialJobs,
+  initialWorkflows,
+  workflowDocs,
 }: {
   initialSessions: TmuxSession[];
-  initialJobs: JobSummary[];
+  initialWorkflows: WorkflowSummary[];
+  /** docs/workflows.md, for Claude to read when writing one. */
+  workflowDocs: string;
 }) {
   const [sessions, setSessionsState] = useState(initialSessions);
   // Bumped on every update, so a poll that started before a create/kill
@@ -96,14 +114,13 @@ export function ThunderVision({
     sessionsVersion.current++;
     setSessionsState(next);
   }, []);
-  const [jobs, setJobsState] = useState(initialJobs);
-  const jobsVersion = useRef(0);
-  const setJobs = useCallback((next: JobSummary[]) => {
-    jobsVersion.current++;
-    setJobsState(next);
+  const [workflows, setWorkflowsState] = useState(initialWorkflows);
+  const workflowsVersion = useRef(0);
+  const setWorkflows = useCallback((next: WorkflowSummary[]) => {
+    workflowsVersion.current++;
+    setWorkflowsState(next);
   }, []);
-  // New job (null) or the one being edited; undefined when closed.
-  const [editing, setEditing] = useState<Job | null | undefined>(undefined);
+  const [creating, setCreating] = useState(false);
   // Panes stay mounted after first visit so switching tabs is instant.
   const [visited, setVisited] = useState<string[]>([]);
   const [ctrl, setCtrl] = useState(false);
@@ -137,11 +154,13 @@ export function ThunderVision({
 
   const names = sessions.map((s) => s.name);
   const hash = useHash();
-  const jobHash = parseJobHash(hash);
-  const activeJob = jobHash ? jobs.find((j) => j.id === jobHash.id) : undefined;
-  // The session shown when no job is: the hash's, else the first.
+  const wfHash = parseWorkflowHash(hash);
+  const activeWorkflow = wfHash
+    ? workflows.find((w) => w.id === wfHash.id)
+    : undefined;
+  // The session shown when no workflow is: the hash's, else the first.
   const current = hash && names.includes(hash) ? hash : (names[0] ?? null);
-  const active = activeJob ? null : current;
+  const active = activeWorkflow ? null : current;
   const opened = names.filter((n) => n === active || visited.includes(n));
 
   const select = (name: string) => {
@@ -151,10 +170,10 @@ export function ThunderVision({
     setHash(name);
   };
 
-  const selectJob = (id: string, run: string | null = null) => {
+  const selectWorkflow = (id: string, run: string | null = null) => {
     // Keep the session's pane mounted for when you come back.
     if (active) setVisited((prev) => [...new Set([...prev, active])]);
-    setHash(run ? `job:${id}/${run}` : `job:${id}`);
+    setHash(run ? `wf:${id}/${run}` : `wf:${id}`);
   };
 
   // Poll tmux. New sessions appear as tabs; vanished ones drop their panes.
@@ -165,22 +184,28 @@ export function ThunderVision({
     let boot: string | null = null;
     const refresh = async () => {
       const version = sessionsVersion.current;
-      const jobsAt = jobsVersion.current;
+      const workflowsAt = workflowsVersion.current;
       try {
-        const [res, jobsRes] = await Promise.all([
+        const [res, wfRes] = await Promise.all([
           fetch("/api/sessions", { cache: "no-store" }),
-          fetch("/api/jobs", { cache: "no-store" }),
+          fetch("/api/workflows", { cache: "no-store" }),
         ]);
         const seen = res.headers.get("X-TV-Boot");
-        if (boot && seen && seen !== boot) return location.reload();
+        if (boot && seen && seen !== boot && reloadAllowed()) {
+          return location.reload();
+        }
         boot ??= seen;
         const next = res.ok ? await res.json() : null;
         if (next && !stopped && version === sessionsVersion.current) {
           setSessions(next);
         }
-        const nextJobs = jobsRes.ok ? await jobsRes.json() : null;
-        if (nextJobs && !stopped && jobsAt === jobsVersion.current) {
-          setJobs(nextJobs);
+        const nextWorkflows = wfRes.ok ? await wfRes.json() : null;
+        if (
+          nextWorkflows &&
+          !stopped &&
+          workflowsAt === workflowsVersion.current
+        ) {
+          setWorkflows(nextWorkflows);
         }
       } catch {}
     };
@@ -192,7 +217,7 @@ export function ThunderVision({
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [setSessions, setJobs]);
+  }, [setSessions, setWorkflows]);
 
   // ⌥1–⌥9 jumps to a tab, ⌘K opens the palette. Capture phase so they win
   // over the focused terminal. (Ctrl+K stays with the shell.)
@@ -235,9 +260,14 @@ export function ThunderVision({
     setPaletteOpen(true);
   };
 
-  const newJob = () => {
+  const newWorkflow = () => {
     setDrawerOpen(false);
-    setEditing(null);
+    setCreating(true);
+  };
+
+  const openedSession = (name: string, next: TmuxSession[]) => {
+    setSessions(next);
+    select(name);
   };
 
   const onAction = (action: SessionAction, name: string) => {
@@ -433,12 +463,12 @@ export function ThunderVision({
           onAction={onAction}
           collapsed={collapsed}
           controls={(side) => controls(side, true)}
-          jobs={
-            <JobList
-              jobs={jobs}
-              active={activeJob?.id ?? null}
-              onSelect={(id) => selectJob(id)}
-              onNew={newJob}
+          workflows={
+            <WorkflowList
+              workflows={workflows}
+              active={activeWorkflow?.id ?? null}
+              onSelect={(id) => selectWorkflow(id)}
+              onNew={newWorkflow}
               collapsed={collapsed}
             />
           }
@@ -475,15 +505,15 @@ export function ThunderVision({
             onNew={openPalette}
             onAction={onAction}
             controls={(side) => controls(side, false)}
-            jobs={
-              <JobList
-                jobs={jobs}
-                active={activeJob?.id ?? null}
+            workflows={
+              <WorkflowList
+                workflows={workflows}
+                active={activeWorkflow?.id ?? null}
                 onSelect={(id) => {
-                  selectJob(id);
+                  selectWorkflow(id);
                   setDrawerOpen(false);
                 }}
-                onNew={newJob}
+                onNew={newWorkflow}
               />
             }
             footer={
@@ -510,11 +540,11 @@ export function ThunderVision({
                 <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-bolt" />
               )}
             </IconButton>
-            {activeJob && (
+            {activeWorkflow && (
               <>
-                <CalendarClock className="size-4 shrink-0 text-muted-foreground" />
+                <Workflow className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 truncate text-sm">
-                  {activeJob.name}
+                  {activeWorkflow.name}
                 </span>
               </>
             )}
@@ -533,7 +563,7 @@ export function ThunderVision({
               <IconButton label="New session" onClick={openPalette}>
                 <Plus />
               </IconButton>
-              {!activeJob && keysButton("bottom")}
+              {!activeWorkflow && keysButton("bottom")}
             </div>
           </div>
         </header>
@@ -563,25 +593,21 @@ export function ThunderVision({
               Drop to upload and type its path
             </div>
           )}
-          {activeJob && (
-            <JobView
-              key={activeJob.id}
-              job={activeJob}
-              runId={jobHash?.run ?? null}
+          {activeWorkflow && (
+            <WorkflowView
+              key={activeWorkflow.id}
+              workflow={activeWorkflow}
+              runId={wfHash?.run ?? null}
               fontSize={fontSize}
-              onSelectRun={(run) => selectJob(activeJob.id, run)}
-              onEdit={() => setEditing(activeJob)}
-              onJobs={setJobs}
-              onDeleted={() => setHash(current ?? "")}
-              onOpenSession={(name, next) => {
-                setSessions(next);
-                select(name);
-              }}
+              docs={workflowDocs}
+              onSelectRun={(run) => selectWorkflow(activeWorkflow.id, run)}
+              onWorkflows={setWorkflows}
+              onOpenSession={openedSession}
               onSwitchSession={select}
             />
           )}
           {sessions.length === 0
-            ? !activeJob && <EmptyState onNew={openPalette} />
+            ? !activeWorkflow && <EmptyState onNew={openPalette} />
             : opened.map((name) => (
                 <TerminalPane
                   key={name}
@@ -621,15 +647,16 @@ export function ThunderVision({
         onCloseFocus={focusTerminal}
       />
 
-      <JobDialog
-        open={editing !== undefined}
-        job={editing ?? null}
-        onOpenChange={(open) => !open && setEditing(undefined)}
-        onSaved={(id, next) => {
-          setJobs(next);
-          setEditing(undefined);
-          selectJob(id);
+      <NewWorkflowDialog
+        open={creating}
+        docs={workflowDocs}
+        onOpenChange={setCreating}
+        onCreated={(_, next) => {
+          setWorkflows(next);
+          setCreating(false);
         }}
+        onOpenSession={openedSession}
+        onSwitchSession={select}
       />
 
       <RenameDialog

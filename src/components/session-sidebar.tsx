@@ -79,8 +79,8 @@ type Props = {
   controls(side: TooltipSide): ReactNode;
   /** Pinned below the tabs (plan usage). */
   footer?: ReactNode;
-  /** Below the tabs, scrolling with them (scheduled jobs). */
-  jobs?: ReactNode;
+  /** Below the tabs, scrolling with them (workflows). */
+  workflows?: ReactNode;
 };
 
 export function SessionSidebar({
@@ -92,7 +92,7 @@ export function SessionSidebar({
   collapsed = false,
   controls,
   footer,
-  jobs,
+  workflows,
 }: Props) {
   const zap = (
     <Zap className="size-5 shrink-0 fill-bolt text-bolt drop-shadow-[0_0_6px_var(--bolt)]" />
@@ -181,7 +181,7 @@ export function SessionSidebar({
             {tabs}
           </SidebarSection>
         )}
-        {jobs}
+        {workflows}
       </div>
 
       {footer && (

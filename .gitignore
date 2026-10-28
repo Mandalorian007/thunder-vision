@@ -41,5 +41,8 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 
-# scheduled jobs: jobs.json and run logs (TV_DATA_DIR)
-/.thunder/
+# .thunder/workflows/ holds this repo's own workflows, if it gets any. Runs,
+# uploads and local workflows live in ~/.thunder-vision (TV_DATA_DIR); a
+# .thunder/ left by an older version is moved there at startup.
+/.thunder/*
+!/.thunder/workflows/

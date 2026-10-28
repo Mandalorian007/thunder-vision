@@ -27,7 +27,7 @@ CI runs lint, build and `tsc` on pushes to main and on pull requests.
 ```
 browser ──https──▶ tailscale serve ──▶ server.ts (127.0.0.1:7700)
                                         ├─ /ws/pty         → pty-bridge: tmux attach in node-pty
-                                        ├─ /ws/log         → log-tail: a job run's output.log
+                                        ├─ /ws/log         → log-tail: a workflow run's log
                                         ├─ /_next/hmr      → Next dev (HMR)
                                         └─ everything else → Next app + /api routes
 ```
@@ -44,24 +44,32 @@ lives on.
   commands via `send-keys`
 - `src/server/repos.ts`: folder listing under `TV_ROOT`, path resolution,
   mkdir / `git init` / `git clone`
-- `src/server/usage.ts`: plan usage and account, via the Agent SDK
-- `src/server/jobs.ts`: the job and run store (files under `.thunder/`),
-  starting, stopping and pruning runs; `scheduler.ts`: a 20s tick in
-  `server.ts` that starts due runs; `job-runner.ts`: one detached process per
-  run (timeout, Claude's stream-json → readable log); `log-tail.ts`: `/ws/log`
+- `src/server/usage.ts`: plan usage and account, via the Agent SDK; the
+  last good check is kept in `usage.json` across restarts
+- `src/server/workflows.ts`: finds and parses workflow files (repo and local),
+  schedule state, the run store, starting, stopping and pruning runs, kept
+  worktrees; `scheduler.ts`: a 20s tick in `server.ts` that starts due runs;
+  `workflow-runner.ts`: one detached process per run (worktree, steps,
+  timeout, outputs, Claude's stream-json → readable log); `log-tail.ts`:
+  `/ws/log`; `data.ts`: `DATA_DIR` and the one-time move from `.thunder/`
+- `bin/tv-claude`: `claude -p` in auto mode with stream-json, on PATH in steps
 - `src/server/uploads.ts`: files from the paperclip, saved under
-  `.thunder/uploads/` with shell-safe names and pruned after a week
-- `src/lib/jobs.ts`: job types, schedule presets ↔ cron, shared with the UI
+  `~/.thunder-vision/uploads/` with shell-safe names and pruned after a week
+- `src/lib/workflows.ts`: workflow and run types, cron → words, the
+  `$TV_OUTPUT` parser, shared with the UI; `src/lib/open-session.ts`: opening
+  a tmux session from the UI (Continue in session, Edit with Claude)
 - `src/lib/names.ts`: session naming, shared by the palette preview and the
   server; `src/lib/protocol.ts`: WebSocket messages and close codes
-- `src/app/api/`: `sessions`, `dirs`, `usage`, `jobs`, `runs` and `uploads` routes
+- `src/app/api/`: `sessions`, `dirs`, `usage`, `workflows`, `runs` and
+  `uploads` routes
 - `src/components/`: `thunder-vision.tsx` (shell, polling, dialogs),
   `session-sidebar.tsx`, `settings-menu.tsx`, `usage-meters.tsx`,
   `new-session-palette.tsx`, `rename-dialog.tsx`, `terminal-pane.tsx`,
-  `key-bar.tsx`, and for jobs `job-list.tsx`, `job-view.tsx`, `job-dialog.tsx`,
-  `log-terminal.tsx`, `run-dots.tsx`; `ui/` is shadcn
+  `key-bar.tsx`, and for workflows `workflow-list.tsx`, `workflow-view.tsx`,
+  `new-workflow-dialog.tsx`, `log-terminal.tsx`, `run-dots.tsx`; `ui/` is
+  shadcn
 
-Jobs state is all in files, never in memory: the scheduler (loaded by
+Workflow state is all in files, never in memory: the scheduler (loaded by
 `server.ts`) and the API routes (bundled by Next) are separate copies of the
 module, and runs outlive server restarts. A `running` run whose runner pid is
 gone is marked `lost` when next read.
@@ -82,14 +90,14 @@ Mutating calls take JSON and need a same-origin `Origin` header.
 | `GET /api/dirs`           |                                                 | folders under `TV_ROOT` |
 | `GET /api/usage`          |                                                 | `Usage` or `null`       |
 | `POST /api/usage`         |                                                 | same, checked now       |
-| `GET /api/jobs`           |                                                 | `JobSummary[]`          |
-| `POST /api/jobs`          | `{name, dir, schedule, task, timeoutMin?, …}`   | 201 `{id, jobs}`        |
-| `PATCH /api/jobs`         | `{id, …changes}`                                | `{jobs}`                |
-| `DELETE /api/jobs`        | `{id, history}`                                 | `{jobs}`                |
-| `GET /api/runs?job=`      |                                                 | `Run[]`, newest first   |
-| `POST /api/runs`          | `{job}` (run now)                               | `{run, runs}`           |
-| `PATCH /api/runs`         | `{job, run}` (stop)                             | `{runs}`                |
-| `DELETE /api/runs`        | `{job, run?}` (one, or all finished)            | `{runs}`                |
+| `GET /api/workflows`      |                                                 | `WorkflowSummary[]`     |
+| `POST /api/workflows`     | `{dir, name}` (writes a template)               | 201 `{id, file, …}`     |
+| `PATCH /api/workflows`    | `{id, enabled}` (pause / resume the schedule)   | `{workflows}`           |
+| `GET /api/runs?workflow=` | `&run=` for one: `{run, summary, artifacts}`    | `Run[]`, newest first   |
+| `POST /api/runs`          | `{workflow, inputs?}` (run now)                 | `{run, runs}`           |
+| `PATCH /api/runs`         | `{workflow, run, action: "stop" \| "discard"}`  | `{runs}`                |
+| `DELETE /api/runs`        | `{workflow, run?}` (one, or all finished)       | `{runs}`                |
+| `GET /api/runs/artifact`  | `?workflow=&run=&path=`                         | the file                |
 | `POST /api/uploads`       | the file as the body, `X-File-Name` header      | `{path}` on this Mac    |
 
 `dir` is relative to `TV_ROOT`, or a `~/…` / absolute path. Errors come back as
@@ -101,6 +109,7 @@ Send `{"t":"i","d":"…"}` for input and `{"t":"r","cols":n,"rows":n}` on resize
 Close code 4000 means the tmux client exited (killed or detached), 4404 means
 no such session; the page reconnects on anything else.
 
-`WS /ws/log?job=<id>&run=<id>` streams a run's `output.log` (the last 2MB,
-then new output) and closes with 4000 once the run has finished, or 4404 for
-no such run.
+`WS /ws/log?workflow=<id>&run=<id>[&step=<n>]` streams a run's `output.log`
+(the last 2MB, then new output), or just step `n`'s part of it (0-based). It
+closes with 4000 once the run (or step) has finished, or 4404 for no such
+run.

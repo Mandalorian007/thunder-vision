@@ -24,7 +24,7 @@ export const ROOT = path.resolve(
 );
 export const ROOT_NAME = path.basename(ROOT);
 
-const SKIP = new Set([
+export const SKIP = new Set([
   "node_modules",
   "dist",
   "build",
@@ -37,7 +37,7 @@ const SKIP = new Set([
 ]);
 
 /** Listed folders: no dot-folders (.git, .cache…). */
-const SEGMENT = /^[\w-][\w.-]*$/;
+export const SEGMENT = /^[\w-][\w.-]*$/;
 
 export type Dir = {
   /** Relative to ROOT; "" is ROOT itself. */

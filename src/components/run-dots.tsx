@@ -1,10 +1,13 @@
 "use client";
 
 import { useSyncExternalStore } from "react";
-import { isRed, type Run, type RunStatus, STATUS_LABEL } from "@/lib/jobs";
+import { isRed, type Run, type RunStatus, STATUS_LABEL } from "@/lib/workflows";
 import { cn } from "@/lib/utils";
 
-/** Green ok, red failed, pulsing running, hollow skipped, grey stopped. */
+/**
+ * Green ok, red failed, pulsing running, a grey dash for no changes, hollow
+ * skipped, grey stopped.
+ */
 export function RunDot({
   status,
   className,
@@ -23,6 +26,7 @@ export function RunDot({
       <span
         className={cn(
           "relative inline-flex size-full rounded-full",
+          status === "nochange" && "h-0.5 self-center bg-muted-foreground/70",
           status === "ok" && "bg-emerald-500",
           isRed(status) && "bg-destructive",
           status === "running" && "bg-bolt",

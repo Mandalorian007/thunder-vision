@@ -9,7 +9,7 @@ const nextConfig: NextConfig = {
   serverExternalPackages: ["node-pty", "@anthropic-ai/claude-agent-sdk"],
   // Every open tab polls these every 2s; keep them out of the dev log.
   logging: {
-    incomingRequests: { ignore: [/^\/api\/(sessions|jobs|runs)/] },
+    incomingRequests: { ignore: [/^\/api\/(sessions|workflows|runs)/] },
   },
   turbopack: {
     rules: {
