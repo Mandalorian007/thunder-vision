@@ -15,6 +15,7 @@ import {
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { execCopy } from "@/lib/clipboard";
+import { dictationInput } from "@/lib/dictation";
 import { CLOSE, type ClientMessage } from "@/lib/protocol";
 import { terminalTheme } from "@/lib/terminal-theme";
 import { touchScroll } from "@/lib/touch-scroll";
@@ -237,6 +238,7 @@ export function TerminalPane({
       touchScroll(el, term, listen.signal, (direction) => {
         if (direction < 0) scrolledUp();
       });
+      dictationInput(el, term, listen.signal);
       el.addEventListener(
         "wheel",
         (e) => {
