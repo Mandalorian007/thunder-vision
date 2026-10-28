@@ -4,7 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
-import { LoaderCircle, Plug, Unplug } from "lucide-react";
+import { Check, Copy, LoaderCircle, Plug, Unplug } from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { CLOSE, type ClientMessage } from "@/lib/protocol";
@@ -17,6 +17,55 @@ export type PaneHandle = {
   send(data: string): void;
   focus(): void;
 };
+
+/**
+ * Copies synchronously, so it works inside a click or tap on Safari, where
+ * navigator.clipboard writes can stay pending forever. readOnly keeps the
+ * iOS keyboard down.
+ */
+function execCopy(text: string) {
+  const ta = document.createElement("textarea");
+  ta.value = text;
+  ta.readOnly = true;
+  ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
+  const prev = document.activeElement;
+  document.body.append(ta);
+  ta.focus({ preventScroll: true });
+  ta.select();
+  ta.setSelectionRange(0, text.length);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch {}
+  ta.remove();
+  // Hand focus back (the terminal, after a drag). It had it already, so this
+  // doesn't newly pop the iOS keyboard.
+  if (prev instanceof HTMLElement && prev !== document.body)
+    prev.focus({ preventScroll: true });
+  return ok;
+}
+
+/** The on-screen text between two cells, as tmux selects it (inclusive). */
+function screenText(
+  term: Terminal,
+  a: { col: number; row: number },
+  b: { col: number; row: number },
+) {
+  const [from, to] =
+    a.row < b.row || (a.row === b.row && a.col <= b.col) ? [a, b] : [b, a];
+  const buf = term.buffer.active;
+  let text = "";
+  for (let row = from.row; row <= to.row; row++) {
+    const line = buf.getLine(buf.viewportY + row);
+    if (!line) break;
+    const start = row === from.row ? from.col : 0;
+    const end = row === to.row ? to.col + 1 : term.cols;
+    text += line.translateToString(true, start, end).trimEnd();
+    if (row < to.row && !buf.getLine(buf.viewportY + row + 1)?.isWrapped)
+      text += "\n";
+  }
+  return text;
+}
 
 type Props = {
   session: string;
@@ -43,6 +92,10 @@ export function TerminalPane({
   const fitRef = useRef<FitAddon | null>(null);
   const reconnectRef = useRef<() => void>(() => {});
   const [status, setStatus] = useState<Status>("connecting");
+  /** Text tmux copied: done once it's on the clipboard, else it waits for a tap. */
+  const [copied, setCopied] = useState<{ text: string; done: boolean } | null>(
+    null,
+  );
 
   // Callbacks change identity every render; the terminal is created once.
   const latest = useRef({ onCtrlConsumed, register, fontSize });
@@ -101,14 +154,85 @@ export function TerminalPane({
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.loadAddon(new WebLinksAddon());
-      // OSC 52: tmux/Claude can copy to your clipboard. Reads answer "", so
-      // nothing printed in a terminal can pull your clipboard into it.
+
+      // OSC 52: tmux (mouse drag, copy mode) and Claude copy to your
+      // clipboard; tmux leaves the selection field empty, so take any. Reads
+      // answer "": nothing printed in a terminal can pull your clipboard in.
+      //
+      // Safari (so every iPad browser) only writes the clipboard inside a
+      // click or tap, and tmux's copy arrives over the socket just after the
+      // release. So releasing a drag copies the same cells from the screen
+      // right away; tmux's copy only matters if it differs (say, a selection
+      // that scrolled), and then gets a Copy button if the browser balks.
+      let dragCopy: { text: string; at: number } | null = null;
       term.loadAddon(
         new ClipboardAddon(undefined, {
           readText: () => "",
-          writeText: (sel, text) =>
-            sel === "c" ? navigator.clipboard.writeText(text) : undefined,
+          writeText: (_sel, text) => {
+            if (!text) return;
+            const recent = dragCopy && performance.now() - dragCopy.at < 2000;
+            if (recent && dragCopy?.text === text) {
+              dragCopy = null;
+              return;
+            }
+            dragCopy = null;
+            let settled = false;
+            const ask = setTimeout(() => {
+              if (!settled) setCopied({ text, done: false });
+            }, 1000);
+            navigator.clipboard.writeText(text).then(
+              () => {
+                settled = true;
+                clearTimeout(ask);
+                setCopied({ text, done: true });
+              },
+              () => {
+                settled = true;
+                clearTimeout(ask);
+                setCopied({ text, done: false });
+              },
+            );
+          },
         }),
+      );
+      const listen = new AbortController();
+      const cellAt = (e: PointerEvent) => {
+        const screen = el.querySelector(".xterm-screen");
+        if (!screen) return null;
+        const r = screen.getBoundingClientRect();
+        const clamp = (n: number, max: number) =>
+          Math.min(Math.max(Math.floor(n), 0), max - 1);
+        return {
+          col: clamp(((e.clientX - r.left) / r.width) * term.cols, term.cols),
+          row: clamp(((e.clientY - r.top) / r.height) * term.rows, term.rows),
+        };
+      };
+      let down: { col: number; row: number; x: number; y: number } | null =
+        null;
+      el.addEventListener(
+        "pointerdown",
+        (e) => {
+          const cell = e.button === 0 ? cellAt(e) : null;
+          down = cell && { ...cell, x: e.clientX, y: e.clientY };
+        },
+        { capture: true, signal: listen.signal },
+      );
+      el.addEventListener(
+        "pointerup",
+        (e) => {
+          const from = down;
+          down = null;
+          const to = cellAt(e);
+          if (!from || !to) return;
+          if (Math.hypot(e.clientX - from.x, e.clientY - from.y) < 5) return;
+          const text = screenText(term, from, to);
+          if (!text.trim()) return;
+          const ok = execCopy(text);
+          if (!ok) return;
+          dragCopy = { text, at: performance.now() };
+          setCopied({ text, done: true });
+        },
+        { capture: true, signal: listen.signal },
       );
       const unicode = new Unicode11Addon();
       term.loadAddon(unicode);
@@ -210,6 +334,7 @@ export function TerminalPane({
       });
 
       cleanup = () => {
+        listen.abort();
         document.removeEventListener("visibilitychange", onVisible);
         observer.disconnect();
         cancelAnimationFrame(frame);
@@ -229,6 +354,24 @@ export function TerminalPane({
       fitRef.current = null;
     };
   }, [session, ctrlRef]);
+
+  useEffect(() => {
+    if (!copied) return;
+    const id = setTimeout(() => setCopied(null), copied.done ? 1500 : 10_000);
+    return () => clearTimeout(id);
+  }, [copied]);
+
+  const copyNow = (text: string) => {
+    const ok = execCopy(text);
+    if (ok) setCopied({ text, done: true });
+    else
+      navigator.clipboard.writeText(text).then(
+        () => setCopied({ text, done: true }),
+        () => setCopied(null),
+      );
+    // Not on touch: focusing the terminal pops the iOS keyboard.
+    if (!matchMedia("(pointer: coarse)").matches) termRef.current?.focus();
+  };
 
   useEffect(() => {
     const term = termRef.current;
@@ -259,6 +402,22 @@ export function TerminalPane({
           {status === "connecting" ? "Attaching…" : "Reconnecting…"}
         </div>
       )}
+
+      {copied &&
+        (copied.done ? (
+          <div className="pointer-events-none absolute right-4 bottom-3 flex items-center gap-1.5 rounded-full border bg-card/90 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
+            <Check className="size-3.5" /> Copied
+          </div>
+        ) : (
+          <Button
+            size="sm"
+            variant="secondary"
+            className="absolute right-4 bottom-3 shadow-sm"
+            onClick={() => copyNow(copied.text)}
+          >
+            <Copy /> Copy
+          </Button>
+        ))}
 
       {(status === "ended" || status === "missing") && (
         <div className="absolute inset-0 flex items-center justify-center bg-terminal/80 backdrop-blur-sm">
