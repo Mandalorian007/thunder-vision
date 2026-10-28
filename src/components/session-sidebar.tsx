@@ -1,9 +1,17 @@
 "use client";
 
 import { Ellipsis, Pencil, Plus, Skull, Zap } from "lucide-react";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { IconButton, type TooltipSide } from "@/components/icon-button";
 import { SidebarSection } from "@/components/sidebar-section";
+import {
+  Grip,
+  MoveItems,
+  moved,
+  type RefCallback,
+  SortableList,
+  useSortableRow,
+} from "@/components/sortable";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -73,6 +81,8 @@ type Props = {
   onNew(): void;
   /** Opens the rename or kill dialog; nothing changes yet. */
   onAction: OnAction;
+  /** Every session's name, in the order dragged to. */
+  onReorder(names: string[]): void;
   /** Icon rail instead of the full list. */
   collapsed?: boolean;
   /** Header buttons: a row beside the title, or a column when collapsed. */
@@ -89,11 +99,17 @@ export function SessionSidebar({
   onSelect,
   onNew,
   onAction,
+  onReorder,
   collapsed = false,
   controls,
   footer,
   workflows,
 }: Props) {
+  const names = sessions.map((s) => s.name);
+  const onMove = (name: string, by: -1 | 1) => {
+    const next = moved(names, name, by);
+    if (next) onReorder(next);
+  };
   const zap = (
     <Zap className="size-5 shrink-0 fill-bolt text-bolt drop-shadow-[0_0_6px_var(--bolt)]" />
   );
@@ -107,23 +123,35 @@ export function SessionSidebar({
         collapsed && "items-center gap-1",
       )}
     >
-      {sessions.map((s, i) => {
-        const tab = {
-          session: s,
-          index: i,
-          selected: s.name === active,
-          onSelect,
-        };
-        return (
-          <SessionMenu key={s.name} name={s.name} onAction={onAction}>
-            {collapsed ? (
-              <RailTab {...tab} />
-            ) : (
-              <SessionTab {...tab} onAction={onAction} />
-            )}
-          </SessionMenu>
-        );
-      })}
+      <SortableList ids={names} onReorder={onReorder}>
+        {sessions.map((s, i) => {
+          const tab = {
+            session: s,
+            index: i,
+            selected: s.name === active,
+            onSelect,
+          };
+          const move = {
+            count: sessions.length,
+            onMove: (by: -1 | 1) => onMove(s.name, by),
+          };
+          return (
+            <SessionMenu
+              key={s.name}
+              name={s.name}
+              index={i}
+              onAction={onAction}
+              {...move}
+            >
+              {collapsed ? (
+                <RailTab {...tab} />
+              ) : (
+                <SessionTab {...tab} {...move} onAction={onAction} />
+              )}
+            </SessionMenu>
+          );
+        })}
+      </SortableList>
       {collapsed && (
         <IconButton
           label="New session  ⌘K"
@@ -199,11 +227,17 @@ type OnAction = (action: SessionAction, name: string) => void;
 /** Right-click, or long-press on touch. iOS's own callout would win otherwise. */
 function SessionMenu({
   name,
+  index,
+  count,
   onAction,
+  onMove,
   children,
 }: {
   name: string;
+  index: number;
+  count: number;
   onAction: OnAction;
+  onMove(by: -1 | 1): void;
   children: ReactNode;
 }) {
   return (
@@ -219,6 +253,12 @@ function SessionMenu({
         >
           <Pencil /> Rename…
         </ContextMenuItem>
+        <MoveItems
+          Item={ContextMenuItem}
+          index={index}
+          count={count}
+          onMove={onMove}
+        />
         <ContextMenuSeparator />
         <ContextMenuItem
           variant="destructive"
@@ -237,28 +277,43 @@ type TabProps = {
   index: number;
   selected: boolean;
   onSelect(name: string): void;
+  // From ContextMenuTrigger, which hands its handlers to the row.
+  ref?: RefCallback;
+  style?: CSSProperties;
 };
 
 function SessionTab({
   session: s,
   index,
+  count,
   selected,
   onSelect,
   onAction,
+  onMove,
+  ref,
+  style,
   ...menuProps
-}: TabProps & { onAction: OnAction }) {
+}: TabProps & {
+  count: number;
+  onAction: OnAction;
+  onMove(by: -1 | 1): void;
+}) {
   const busy = s.idleSeconds < BUSY_SECONDS;
+  const { row, grip } = useSortableRow(s.name, ref);
   return (
     // menuProps: ContextMenuTrigger's handlers land on this row.
     <div
       {...menuProps}
+      {...row}
+      style={{ ...style, ...row.style }}
       className={cn(
-        "group relative flex w-full items-center rounded-md transition-colors select-none [-webkit-touch-callout:none]",
+        "group relative flex w-full items-center rounded-md transition-colors select-none [-webkit-touch-callout:none] data-dragging:z-20 data-dragging:bg-sidebar-accent data-dragging:shadow-md",
         selected
           ? "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-sidebar-foreground/75 hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",
       )}
     >
+      <Grip {...grip} className="-mr-2" />
       {selected && (
         <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" />
       )}
@@ -294,6 +349,8 @@ function SessionTab({
         <DropdownMenuTrigger asChild>
           <button
             aria-label={`Actions for ${s.name}`}
+            // Its menu opens on press; don't start a drag from it too.
+            onMouseDown={(e) => e.stopPropagation()}
             // Hover-only with a mouse; always there on touch, where hover isn't.
             className="mx-1 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-0 outline-none group-hover:opacity-100 hover:bg-sidebar-accent hover:text-sidebar-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring/50 data-[state=open]:opacity-100 pointer-coarse:size-9 pointer-coarse:opacity-100 [&_svg]:size-4"
           >
@@ -307,6 +364,12 @@ function SessionTab({
           >
             <Pencil /> Rename…
           </DropdownMenuItem>
+          <MoveItems
+            Item={DropdownMenuItem}
+            index={index}
+            count={count}
+            onMove={onMove}
+          />
           <DropdownMenuSeparator />
           <DropdownMenuItem
             variant="destructive"
@@ -321,25 +384,31 @@ function SessionTab({
   );
 }
 
+/** Drags with a mouse; on touch, Move up / down in its long-press menu. */
 function RailTab({
   session: s,
   index,
   selected,
   onSelect,
+  ref,
+  style,
   ...menuProps
 }: TabProps) {
   const busy = s.idleSeconds < BUSY_SECONDS;
+  const { row } = useSortableRow(s.name, ref);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           {...menuProps}
+          {...row}
+          style={{ ...style, ...row.style }}
           role="tab"
           aria-selected={selected}
           aria-label={s.name}
           onClick={() => onSelect(s.name)}
           className={cn(
-            "relative flex size-10 shrink-0 items-center justify-center rounded-md font-mono text-xs font-semibold uppercase transition-colors select-none [-webkit-touch-callout:none]",
+            "relative flex size-10 shrink-0 items-center justify-center rounded-md font-mono text-xs font-semibold uppercase transition-colors select-none [-webkit-touch-callout:none] data-dragging:z-20 data-dragging:bg-sidebar-accent data-dragging:shadow-md",
             selected
               ? "bg-sidebar-accent text-sidebar-accent-foreground ring-1 ring-primary/50"
               : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-sidebar-foreground",

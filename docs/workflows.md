@@ -248,6 +248,7 @@ Old runs are pruned past `keep`, except ones whose worktree was kept.
 ~/.thunder-vision/                 or TV_DATA_DIR
 ├─ workflows/<name>.yml            local workflows
 ├─ state.json                      paused or not, how far each schedule fired
+├─ order.json                      the sidebar order, once dragged
 ├─ usage.json                      the last good plan usage check
 ├─ runs/<workflow>/<run>/
 │  ├─ run.json                     status, steps, outputs, worktree

@@ -58,6 +58,8 @@ import { cleanEnv, tildify } from "./tmux";
 const home = os.homedir();
 const LOCAL_DIR = path.join(DATA_DIR, "workflows");
 const STATE_FILE = path.join(DATA_DIR, "state.json");
+/** The sidebar order, as dragged: { workflows: [id, …] }. */
+const ORDER_FILE = path.join(DATA_DIR, "order.json");
 const RUNS_DIR = path.join(DATA_DIR, "runs");
 const WORKTREES_DIR = path.join(DATA_DIR, "worktrees");
 /** The detached process that runs one workflow and records how it went. */
@@ -411,9 +413,37 @@ export function takeDue(wf: Workflow, now = new Date()) {
   return due;
 }
 
+// ── Sidebar order ─────────────────────────────────────────────────────────
+
+/**
+ * Kept apart from state.json, which is the scheduler's: a fresh schedule
+ * state must never lose your order, and ordering must never start a schedule.
+ */
+const readOrder = () =>
+  readJson<{ workflows?: unknown }>(ORDER_FILE)?.workflows ?? [];
+
+/** Dragged ones first, as dragged; any others after, as found. */
+function sortByOrder(workflows: Workflow[]) {
+  const order = readOrder();
+  const rank = new Map(
+    (Array.isArray(order) ? order : []).map((id, i) => [id, i]),
+  );
+  return workflows
+    .map((wf, i) => ({ wf, at: rank.get(wf.id) ?? Infinity, i }))
+    .sort((a, b) => a.at - b.at || a.i - b.i)
+    .map(({ wf }) => wf);
+}
+
+/** Known ids in this order; ones left out keep their place after them. */
+export function setWorkflowOrder(ids: string[]) {
+  const known = new Set(listWorkflows().map((w) => w.id));
+  const kept = [...new Set(ids)].filter((id) => known.has(id));
+  writeJson(ORDER_FILE, { workflows: kept });
+}
+
 export function summaries(): WorkflowSummary[] {
   const state = readState();
-  return listWorkflows().map((wf) => {
+  return sortByOrder(listWorkflows()).map((wf) => {
     const s = stateOf(wf, state);
     const runs = listRuns(wf.id, RECENT_RUNS);
     const running = runs.find((r) => r.status === "running");

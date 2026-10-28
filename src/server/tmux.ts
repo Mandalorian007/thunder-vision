@@ -20,7 +20,16 @@ export type TmuxSession = {
   command: string;
   /** The active pane is in copy mode: scrolled back, not showing live output. */
   inMode: boolean;
+  /** Its place in the sidebar, once dragged; null sorts after, by age. */
+  order: number | null;
 };
+
+/**
+ * The sidebar order, kept on the session itself as a user option: it follows
+ * renames, goes when the session does, and setting it touches nothing that
+ * runs in the session.
+ */
+const ORDER_OPTION = "@tv_order";
 
 const FIELDS = [
   "session_name",
@@ -32,6 +41,7 @@ const FIELDS = [
   "pane_current_path",
   "pane_current_command",
   "pane_in_mode",
+  ORDER_OPTION,
 ] as const;
 
 // Unit separator: never appears in session names or paths in practice.
@@ -86,6 +96,7 @@ export async function listSessions(): Promise<TmuxSession[]> {
         path,
         command,
         inMode,
+        order,
       ] = fields;
       return {
         name,
@@ -97,9 +108,14 @@ export async function listSessions(): Promise<TmuxSession[]> {
         path: tildify(path),
         command,
         inMode: inMode === "1",
+        order: /^\d+$/.test(order) ? Number(order) : null,
       };
     })
-    .sort((a, b) => a.createdAt - b.createdAt);
+    .sort(
+      (a, b) =>
+        (a.order ?? Infinity) - (b.order ?? Infinity) ||
+        a.createdAt - b.createdAt,
+    );
 }
 
 export async function hasSession(name: string): Promise<boolean> {
@@ -127,6 +143,28 @@ export async function renameSession(from: string, to: string) {
   await run(TMUX_BIN, ["rename-session", "-t", `=${from}`, "--", to], {
     env: cleanEnv(),
   });
+}
+
+/**
+ * Numbers the sessions 0…n-1 in this order. Only sets a user option, so
+ * whatever runs in them never notices. A session that vanished meanwhile is
+ * skipped.
+ */
+export async function setSessionOrder(names: string[]) {
+  const env = cleanEnv();
+  await Promise.all(
+    names.map((name, i) =>
+      // `=name:`, like send-keys: set-option resolves -t as a pane.
+      run(
+        TMUX_BIN,
+        ["set-option", "-t", `=${name}:`, ORDER_OPTION, String(i)],
+        { env },
+      ).catch((err) => {
+        const stderr = (err as { stderr?: string }).stderr ?? "";
+        if (!/can't find|no such session/i.test(stderr)) throw err;
+      }),
+    ),
+  );
 }
 
 /** Ends the session and everything running in it, for every client. */

@@ -320,6 +320,46 @@ export function ThunderVision({
     }
   };
 
+  // Shown in the new order at once; the poll can't undo it (the version
+  // bump), and a failure puts it back.
+  const reorderSessions = async (order: string[]) => {
+    const before = sessions;
+    const byName = new Map(sessions.map((s) => [s.name, s]));
+    setSessions(order.flatMap((n) => byName.get(n) ?? []));
+    try {
+      const res = await fetch("/api/sessions/order", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ names: order }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? res.statusText);
+      setSessions(data.sessions);
+    } catch (err) {
+      setSessions(before);
+      toast.error(err instanceof Error ? err.message : `Couldn't reorder`);
+    }
+  };
+
+  const reorderWorkflows = async (order: string[]) => {
+    const before = workflows;
+    const byId = new Map(workflows.map((w) => [w.id, w]));
+    setWorkflows(order.flatMap((id) => byId.get(id) ?? []));
+    try {
+      const res = await fetch("/api/workflows/order", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ids: order }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? res.statusText);
+      setWorkflows(data.workflows);
+    } catch (err) {
+      setWorkflows(before);
+      toast.error(err instanceof Error ? err.message : `Couldn't reorder`);
+    }
+  };
+
   const register = useCallback((name: string, handle: PaneHandle | null) => {
     if (handle) panes.current.set(name, handle);
     else panes.current.delete(name);
@@ -461,6 +501,7 @@ export function ThunderVision({
           onSelect={select}
           onNew={openPalette}
           onAction={onAction}
+          onReorder={reorderSessions}
           collapsed={collapsed}
           controls={(side) => controls(side, true)}
           workflows={
@@ -469,6 +510,7 @@ export function ThunderVision({
               active={activeWorkflow?.id ?? null}
               onSelect={(id) => selectWorkflow(id)}
               onNew={newWorkflow}
+              onReorder={reorderWorkflows}
               collapsed={collapsed}
             />
           }
@@ -504,6 +546,7 @@ export function ThunderVision({
             }}
             onNew={openPalette}
             onAction={onAction}
+            onReorder={reorderSessions}
             controls={(side) => controls(side, false)}
             workflows={
               <WorkflowList
@@ -514,6 +557,7 @@ export function ThunderVision({
                   setDrawerOpen(false);
                 }}
                 onNew={newWorkflow}
+                onReorder={reorderWorkflows}
               />
             }
             footer={

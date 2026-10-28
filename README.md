@@ -11,6 +11,9 @@ the browser just detaches, so whatever's running keeps going.
 - **Tabs are tmux sessions.** Sessions made anywhere show up within 2s, and the
   URL hash (`#my-app`) makes each one bookmarkable.
 - **Busy dots** pulse while a session is printing, i.e. Claude is mid-turn.
+- **Drag to reorder** sessions and workflows (by the grip on touch, or Move
+  up / down in a row's menu). Session order is stored in tmux itself, so it
+  survives restarts and renames without touching what runs inside.
 - **New session palette** (⌘K): pick a folder, type a new name or path, or
   paste a git URL to clone. Optionally run a start command like `claude`.
 - **Workflows**: shell steps in a YAML file, by hand or on a schedule, with
