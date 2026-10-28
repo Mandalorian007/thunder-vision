@@ -14,11 +14,12 @@ The server asks Claude Code itself, through the
 - It starts `claude` (the SDK's bundled copy, or `CLAUDE_BIN`) with no prompt,
   so nothing goes to a model, no session is saved and no settings or hooks
   load. Claude Code uses its own login; Thunder Vision never sees the token.
-- A check takes about half a second and runs at most once an hour, only while
-  a page is open. Every open page shares the answer, so the numbers can be up
-  to an hour behind `/usage`; the header says when they were checked.
+- A check takes about half a second and runs on the hour (10:00, 11:00…), only
+  while a page is open. Every open page shares the answer, so the numbers can
+  be up to an hour behind `/usage`; the header says when they were checked.
 - The refresh button by the plan name checks straight away (at most once every
-  30 seconds, however many pages ask). So does restarting the server.
+  30 seconds, however many pages ask), and the next check is still on the
+  hour. Restarting the server also checks straight away.
 - A failed check retries after a minute. Meanwhile the last numbers stay up,
   and "checked … ago" turns amber once they're over 70 minutes old. A window
   whose reset time passes drops to 0% within 30 seconds.

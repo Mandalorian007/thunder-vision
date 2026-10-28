@@ -19,8 +19,16 @@ export type Usage = {
   updatedAt: number;
 };
 
-/** Each check starts Claude Code; every open page shares one answer. */
-const FRESH_MS = 60 * 60_000;
+/**
+ * Each check starts Claude Code, so it runs on the hour and every open page
+ * shares the answer. A refresh is just an early one; the next is still on
+ * the hour.
+ */
+const nextHour = (from: number) => {
+  const d = new Date(from);
+  d.setHours(d.getHours() + 1, 0, 0, 0);
+  return d.getTime();
+};
 /** A failed check tries again sooner, so the meters don't sit blank an hour. */
 const RETRY_MS = 60_000;
 /** The refresh button can't start checks closer together than this. */
@@ -85,7 +93,7 @@ async function fetchUsage(): Promise<Usage | null> {
 
 /**
  * Null until the first fetch succeeds; windows are null on API-key logins.
- * `force` checks now instead of waiting out the hour.
+ * `force` checks now instead of waiting for the hour.
  */
 export async function getUsage(force = false): Promise<Usage | null> {
   if (force && Date.now() - lastAttempt >= FORCE_GAP_MS) nextCheck = 0;
@@ -103,7 +111,7 @@ export async function getUsage(force = false): Promise<Usage | null> {
       return null;
     })
     .then((next) => {
-      if (next) nextCheck = Date.now() + FRESH_MS;
+      if (next) nextCheck = nextHour(Date.now());
       // A failed fetch keeps showing the last good numbers.
       return (last = next ?? last);
     })

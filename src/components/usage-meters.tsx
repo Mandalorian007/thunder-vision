@@ -20,7 +20,7 @@ const POLL_MS = 30_000;
 
 /**
  * Plan usage; undefined until the first answer, null if unavailable.
- * `refresh` asks the server to check now instead of at the hourly mark.
+ * `refresh` asks the server to check now; the next check is still on the hour.
  */
 export function useUsage() {
   const [usage, setUsage] = useState<Usage | null | undefined>(undefined);
