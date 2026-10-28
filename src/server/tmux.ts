@@ -103,13 +103,15 @@ export async function newSession(name: string, cwd: string, command?: string) {
   await run(TMUX_BIN, ["new-session", "-d", "-s", name, "-c", cwd], { env });
   if (command) {
     const pane = `=${name}:`;
-    await run(TMUX_BIN, ["send-keys", "-t", pane, "-l", command], { env });
+    await run(TMUX_BIN, ["send-keys", "-t", pane, "-l", "--", command], {
+      env,
+    });
     await run(TMUX_BIN, ["send-keys", "-t", pane, "Enter"], { env });
   }
 }
 
 export async function renameSession(from: string, to: string) {
-  await run(TMUX_BIN, ["rename-session", "-t", `=${from}`, to], {
+  await run(TMUX_BIN, ["rename-session", "-t", `=${from}`, "--", to], {
     env: cleanEnv(),
   });
 }

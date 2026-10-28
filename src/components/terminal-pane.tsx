@@ -101,7 +101,15 @@ export function TerminalPane({
       const fit = new FitAddon();
       term.loadAddon(fit);
       term.loadAddon(new WebLinksAddon());
-      term.loadAddon(new ClipboardAddon()); // OSC 52: tmux/Claude can copy to your clipboard
+      // OSC 52: tmux/Claude can copy to your clipboard. Reads answer "", so
+      // nothing printed in a terminal can pull your clipboard into it.
+      term.loadAddon(
+        new ClipboardAddon(undefined, {
+          readText: () => "",
+          writeText: (sel, text) =>
+            sel === "c" ? navigator.clipboard.writeText(text) : undefined,
+        }),
+      );
       const unicode = new Unicode11Addon();
       term.loadAddon(unicode);
       term.unicode.activeVersion = "11";

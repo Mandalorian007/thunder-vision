@@ -10,10 +10,11 @@ This block is written and re-added by `next dev` — verify at `node_modules/nex
 
 # Thunder Vision — notes for agents
 
-A Next.js + shadcn UI over tmux, served to a tailnet. Read `README.md` first:
-it covers setup, features, layout, the API and the security model. Local
-settings live in `.env` (see `.env.example`); never commit `.env`, and keep
-machine-specific values (paths, logins, hostnames) out of tracked files.
+A Next.js + shadcn UI over tmux, served to a tailnet. Read `README.md` first
+(setup, features, security), then `docs/development.md` for the layout and the
+API. Local settings live in `.env` (see `.env.example` and
+`docs/configuration.md`); never commit `.env`, and keep machine-specific values
+(paths, logins, hostnames) out of tracked files.
 
 ## The running app may be live
 

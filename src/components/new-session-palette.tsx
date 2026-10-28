@@ -41,7 +41,7 @@ import { cn } from "@/lib/utils";
 import type { Dir } from "@/server/repos";
 import type { TmuxSession } from "@/server/tmux";
 
-/** A folder name or path under ~/repos that we could create. */
+/** A folder name or path under TV_ROOT that we could create. */
 const NEW_REL = /^[\w-][\w.-]*(\/[\w-][\w.-]*)*$/;
 const RECENT_KEY = "tv:recentCommands";
 const SUGGESTED = ["claude", "claude --resume", "claude --continue"];
@@ -74,7 +74,7 @@ function rememberCommand(command: string) {
 type Plan = {
   /** Where it'll run, for display. */
   title: string;
-  /** Sent to the server: relative to ~/repos, or "~/…" / "/…". */
+  /** Sent to the server: relative to TV_ROOT, or "~/…" / "/…". */
   dir: string;
   name: string;
   create?: boolean;
@@ -196,7 +196,7 @@ export function NewSessionPalette({
     title: d.path,
     dir: d.rel,
     name: d.sessionName,
-    // Never offer to git init ~/repos itself.
+    // Never offer to git init TV_ROOT itself.
     canGit: d.depth === 1 && !d.branch,
   });
 
@@ -320,7 +320,7 @@ export function NewSessionPalette({
             <CommandInput
               value={query}
               onValueChange={setQuery}
-              placeholder="Search ~/repos, or a new name, path or git URL…"
+              placeholder="Search folders, or a new name, path or git URL…"
               // 16px stops iOS zooming in on focus.
               className="pointer-coarse:text-base"
             />
@@ -329,7 +329,7 @@ export function NewSessionPalette({
                 {dirs === null ? (
                   <span className="inline-flex items-center gap-2">
                     <LoaderCircle className="size-4 animate-spin" /> Reading
-                    ~/repos…
+                    folders…
                   </span>
                 ) : (
                   "No folders match."
@@ -441,7 +441,7 @@ export function NewSessionPalette({
   );
 }
 
-const itemValue = (d: Dir) => d.rel || "~/repos";
+const itemValue = (d: Dir) => d.rel || d.path;
 
 /** Opens the options card for a row; always visible on touch, where Tab isn't. */
 function OptionsButton({ onClick }: { onClick(): void }) {

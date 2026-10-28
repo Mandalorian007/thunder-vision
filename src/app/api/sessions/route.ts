@@ -48,7 +48,7 @@ export async function GET() {
 
 /**
  * { dir, create?, git?, clone?, name?, command? } → new detached session.
- * `dir` is relative to ~/repos, or "~/…" / "/…". `clone` is a git URL to
+ * `dir` is relative to TV_ROOT, or "~/…" / "/…". `clone` is a git URL to
  * clone into `dir` first; `command` is typed into the new shell.
  */
 export async function POST(req: Request) {

@@ -126,8 +126,8 @@ export function ThunderVision({
   const panes = useRef(new Map<string, PaneHandle>());
 
   // Touch devices default to the key bar, and phones to smaller text.
-  const [fontSize, setFontSize] = usePref<number>("tv:fontSize", 13, () =>
-    isTouch() && innerWidth < 640 ? 11 : 13,
+  const [fontSize, setFontSize] = usePref<number>("tv:fontSize", 12, () =>
+    isTouch() && innerWidth < 640 ? 11 : 12,
   );
   const [showKeys, setShowKeys] = usePref("tv:keybar", false, isTouch);
   const [collapsed, setCollapsed] = usePref(

@@ -3,11 +3,13 @@ import { EventEmitter } from "node:events";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import next from "next";
 import { WebSocketServer } from "ws";
-import { originMatchesHost } from "./src/server/origin";
+import { hostAllowed, originMatchesHost } from "./src/server/origin";
 import { attachPty } from "./src/server/pty-bridge";
 
 const dev = process.env.NODE_ENV !== "production";
-const hostname = process.env.HOST || "127.0.0.1";
+// Loopback only, on purpose: tailscale serve is the way in. Not configurable,
+// so a HOST=0.0.0.0 exported for some other project can't expose a shell.
+const hostname = "127.0.0.1";
 const port = Number(process.env.PORT || 7700);
 /** Optional comma-separated Tailscale logins allowed in, e.g. "you@github". */
 const allowedLogins = (process.env.TV_ALLOWED_LOGINS ?? "")
@@ -32,6 +34,20 @@ const app = next({
 
 /** This is a remote shell: refuse anything that isn't you on your tailnet. */
 function rejectReason(req: IncomingMessage): string | null {
+  const forwarded = req.headers["x-forwarded-host"];
+  if (!hostAllowed(req.headers.host) || (forwarded && !hostAllowed(forwarded)))
+    return "unknown host";
+  // Another site's page loading our scripts or Next's dev endpoints (a public
+  // *.ts.net Funnel page passes Next's allowedDevOrigins). Following a link
+  // here is fine.
+  const site = req.headers["sec-fetch-site"];
+  if (
+    site &&
+    site !== "same-origin" &&
+    site !== "none" &&
+    req.headers["sec-fetch-mode"] !== "navigate"
+  )
+    return "cross-site request";
   // tailscale serve stamps this on requests that arrive from the public internet.
   if (req.headers["tailscale-funnel-request"])
     return "funnel requests are not allowed";

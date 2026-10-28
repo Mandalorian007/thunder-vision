@@ -20,8 +20,11 @@ if [[ -f "$DIR/.env" ]]; then
 fi
 LABEL="${TV_LAUNCHD_LABEL:-local.thunder-vision}"
 PORT="${PORT:-7700}"
-NODE="$(command -v node)"
-TMUX_BIN="$(command -v tmux)"
+NODE="$(command -v node || true)"
+TMUX_BIN="${TMUX_BIN:-$(command -v tmux || true)}"
+[[ "$LABEL" =~ ^[A-Za-z0-9.-]+$ ]] || { echo "TV_LAUNCHD_LABEL: letters, digits, . and - only." >&2; exit 1; }
+[[ -n "$NODE" ]] || { echo "node not found on PATH." >&2; exit 1; }
+[[ -n "$TMUX_BIN" ]] || { echo "tmux not found: brew install tmux, or set TMUX_BIN in .env." >&2; exit 1; }
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 LOG="$HOME/Library/Logs/thunder-vision.log"
 DOMAIN="gui/$(id -u)"
