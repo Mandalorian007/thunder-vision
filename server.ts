@@ -3,8 +3,10 @@ import { EventEmitter } from "node:events";
 import { createServer, type IncomingMessage, type Server } from "node:http";
 import next from "next";
 import { WebSocketServer } from "ws";
+import { attachLog } from "./src/server/log-tail";
 import { hostAllowed, originMatchesHost } from "./src/server/origin";
 import { attachPty } from "./src/server/pty-bridge";
+import { startScheduler } from "./src/server/scheduler";
 
 const dev = process.env.NODE_ENV !== "production";
 // Loopback only, on purpose: tailscale serve is the way in. Not configurable,
@@ -92,6 +94,12 @@ async function main() {
       socket.end("HTTP/1.1 403 Forbidden\r\n\r\n");
       return;
     }
+    if (url.pathname === "/ws/log") {
+      wss.handleUpgrade(req, socket, head, (ws) =>
+        attachLog(ws, url.searchParams),
+      );
+      return;
+    }
     if (url.pathname !== "/ws/pty") {
       // No listener in production, or before the first page request.
       if (!nextUpgrades.emit("upgrade", req, socket, head)) socket.destroy();
@@ -109,6 +117,7 @@ async function main() {
     console.log(
       `⚡ Thunder Vision on http://${hostname}:${port} (${dev ? "dev" : "production"})`,
     );
+    startScheduler();
   });
 }
 

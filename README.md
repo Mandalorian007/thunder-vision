@@ -13,10 +13,15 @@ the browser just detaches, so whatever's running keeps going.
 - **Busy dots** pulse while a session is printing, i.e. Claude is mid-turn.
 - **New session palette** (⌘K): pick a folder, type a new name or path, or
   paste a git URL to clone. Optionally run a start command like `claude`.
+- **Scheduled jobs**: run Claude (`claude -p`, often a custom slash command)
+  or a shell command in a folder on a schedule. Green and red dots for recent
+  runs, a live log, the final message, and "continue in session" to pick a
+  run up in Claude. [Details](docs/jobs.md).
 - **Plan usage** in the sidebar: your session and weekly caps, as `/usage`
   shows them. [How it works](docs/plan-usage.md).
 - **Touch friendly.** A drawer sidebar on phones and a key bar with esc, tab,
-  ctrl, arrows and the other keys iOS lacks.
+  ctrl, arrows and the other keys iOS lacks. Drag a finger to scroll back
+  (with momentum; tmux's `mouse on` needed), then **Back to live**.
 - **Self-healing.** Terminals reconnect after a blip; pages reload when the
   server restarts.
 
@@ -79,6 +84,7 @@ This is a shell with no login of its own. Tailscale is the lock:
 ## Docs
 
 - [Configuration](docs/configuration.md): settings, launchd, updating
+- [Scheduled jobs](docs/jobs.md): schedules, runs, timeouts, files
 - [Plan usage](docs/plan-usage.md): where the numbers come from
 - [Development](docs/development.md): architecture, API, workflow
 - [Troubleshooting](docs/troubleshooting.md)

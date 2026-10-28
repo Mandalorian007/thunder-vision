@@ -4,12 +4,22 @@ import "@xterm/xterm/css/xterm.css";
 
 import type { FitAddon } from "@xterm/addon-fit";
 import type { Terminal } from "@xterm/xterm";
-import { Check, Copy, LoaderCircle, Plug, Unplug } from "lucide-react";
+import {
+  ArrowDownToLine,
+  Check,
+  Copy,
+  LoaderCircle,
+  Plug,
+  Unplug,
+} from "lucide-react";
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
+import { execCopy } from "@/lib/clipboard";
 import { CLOSE, type ClientMessage } from "@/lib/protocol";
 import { terminalTheme } from "@/lib/terminal-theme";
+import { touchScroll } from "@/lib/touch-scroll";
 import { cn } from "@/lib/utils";
+import type { TmuxSession } from "@/server/tmux";
 
 type Status = "connecting" | "open" | "reconnecting" | "ended" | "missing";
 
@@ -17,33 +27,6 @@ export type PaneHandle = {
   send(data: string): void;
   focus(): void;
 };
-
-/**
- * Copies synchronously, so it works inside a click or tap on Safari, where
- * navigator.clipboard writes can stay pending forever. readOnly keeps the
- * iOS keyboard down.
- */
-function execCopy(text: string) {
-  const ta = document.createElement("textarea");
-  ta.value = text;
-  ta.readOnly = true;
-  ta.style.cssText = "position:fixed;top:0;left:0;opacity:0;font-size:16px";
-  const prev = document.activeElement;
-  document.body.append(ta);
-  ta.focus({ preventScroll: true });
-  ta.select();
-  ta.setSelectionRange(0, text.length);
-  let ok = false;
-  try {
-    ok = document.execCommand("copy");
-  } catch {}
-  ta.remove();
-  // Hand focus back (the terminal, after a drag). It had it already, so this
-  // doesn't newly pop the iOS keyboard.
-  if (prev instanceof HTMLElement && prev !== document.body)
-    prev.focus({ preventScroll: true });
-  return ok;
-}
 
 /** The on-screen text between two cells, as tmux selects it (inclusive). */
 function screenText(
@@ -75,6 +58,9 @@ type Props = {
   ctrlRef: RefObject<boolean>;
   onCtrlConsumed(): void;
   register(session: string, handle: PaneHandle | null): void;
+  /** tmux says the pane is in copy mode (scrolled back), as of the last poll. */
+  inMode: boolean;
+  onSessions(sessions: TmuxSession[]): void;
 };
 
 const MAX_BACKOFF_MS = 10_000;
@@ -86,6 +72,8 @@ export function TerminalPane({
   ctrlRef,
   onCtrlConsumed,
   register,
+  inMode,
+  onSessions,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
@@ -96,6 +84,11 @@ export function TerminalPane({
   const [copied, setCopied] = useState<{ text: string; done: boolean } | null>(
     null,
   );
+  /**
+   * What we just did, ahead of the next poll: scrolled up (into copy mode) or
+   * asked to go back to live. Expires once the poll has caught up.
+   */
+  const [scrolled, setScrolled] = useState<{ back: boolean } | null>(null);
 
   // Callbacks change identity every render; the terminal is created once.
   const latest = useRef({ onCtrlConsumed, register, fontSize });
@@ -212,7 +205,9 @@ export function TerminalPane({
       el.addEventListener(
         "pointerdown",
         (e) => {
-          const cell = e.button === 0 ? cellAt(e) : null;
+          // A finger drag scrolls instead (touchScroll below).
+          const cell =
+            e.button === 0 && e.pointerType !== "touch" ? cellAt(e) : null;
           down = cell && { ...cell, x: e.clientX, y: e.clientY };
         },
         { capture: true, signal: listen.signal },
@@ -233,6 +228,21 @@ export function TerminalPane({
           setCopied({ text, done: true });
         },
         { capture: true, signal: listen.signal },
+      );
+      // Scrolling up with tmux's mouse on enters copy mode; offer a way back.
+      const scrolledUp = () => {
+        if (term.modes.mouseTrackingMode === "none") return;
+        setScrolled((s) => (s?.back ? s : { back: true }));
+      };
+      touchScroll(el, term, listen.signal, (direction) => {
+        if (direction < 0) scrolledUp();
+      });
+      el.addEventListener(
+        "wheel",
+        (e) => {
+          if (e.deltaY < 0) scrolledUp();
+        },
+        { capture: true, passive: true, signal: listen.signal },
       );
       const unicode = new Unicode11Addon();
       term.loadAddon(unicode);
@@ -356,6 +366,23 @@ export function TerminalPane({
   }, [session, ctrlRef]);
 
   useEffect(() => {
+    if (!scrolled) return;
+    const id = setTimeout(() => setScrolled(null), 3000);
+    return () => clearTimeout(id);
+  }, [scrolled]);
+
+  const backToLive = async () => {
+    setScrolled({ back: false });
+    const res = await fetch("/api/sessions/live", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: session }),
+    }).catch(() => null);
+    if (res?.ok) onSessions((await res.json()).sessions);
+  };
+  const showLive = status === "open" && (scrolled ? scrolled.back : inMode);
+
+  useEffect(() => {
     if (!copied) return;
     const id = setTimeout(() => setCopied(null), copied.done ? 1500 : 10_000);
     return () => clearTimeout(id);
@@ -394,13 +421,25 @@ export function TerminalPane({
     <div
       className={cn("relative min-h-0 flex-1 bg-terminal", !active && "hidden")}
     >
-      <div ref={containerRef} className="absolute inset-0" />
+      {/* isolate: xterm's layers (z-index up to 11) stay under our overlays. */}
+      <div ref={containerRef} className="absolute inset-0 isolate" />
 
       {(status === "connecting" || status === "reconnecting") && (
         <div className="pointer-events-none absolute top-3 right-4 flex items-center gap-2 rounded-full border bg-card/90 px-3 py-1 text-xs text-muted-foreground shadow-sm backdrop-blur">
           <LoaderCircle className="size-3.5 animate-spin" />
           {status === "connecting" ? "Attaching…" : "Reconnecting…"}
         </div>
+      )}
+
+      {showLive && (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="absolute bottom-9 left-1/2 -translate-x-1/2 rounded-full shadow-sm pointer-coarse:h-10 pointer-coarse:px-4"
+          onClick={backToLive}
+        >
+          <ArrowDownToLine /> Back to live
+        </Button>
       )}
 
       {copied &&

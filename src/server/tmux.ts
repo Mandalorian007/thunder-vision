@@ -18,6 +18,8 @@ export type TmuxSession = {
   createdAt: number;
   path: string;
   command: string;
+  /** The active pane is in copy mode: scrolled back, not showing live output. */
+  inMode: boolean;
 };
 
 const FIELDS = [
@@ -29,6 +31,7 @@ const FIELDS = [
   "session_created",
   "pane_current_path",
   "pane_current_command",
+  "pane_in_mode",
 ] as const;
 
 // Unit separator: never appears in session names or paths in practice.
@@ -73,8 +76,17 @@ export async function listSessions(): Promise<TmuxSession[]> {
     .map((line) => line.split(SEP))
     .filter((fields) => fields.length === FIELDS.length)
     .map((fields) => {
-      const [name, group, windows, attached, activity, created, path, command] =
-        fields;
+      const [
+        name,
+        group,
+        windows,
+        attached,
+        activity,
+        created,
+        path,
+        command,
+        inMode,
+      ] = fields;
       return {
         name,
         group: group || null,
@@ -84,6 +96,7 @@ export async function listSessions(): Promise<TmuxSession[]> {
         createdAt: Number(created),
         path: tildify(path),
         command,
+        inMode: inMode === "1",
       };
     })
     .sort((a, b) => a.createdAt - b.createdAt);
@@ -119,4 +132,11 @@ export async function renameSession(from: string, to: string) {
 /** Ends the session and everything running in it, for every client. */
 export async function killSession(name: string) {
   await run(TMUX_BIN, ["kill-session", "-t", `=${name}`], { env: cleanEnv() });
+}
+
+/** Leaves copy mode in the active pane, back to live output. */
+export async function exitCopyMode(name: string) {
+  await run(TMUX_BIN, ["send-keys", "-X", "-t", `=${name}:`, "cancel"], {
+    env: cleanEnv(),
+  }).catch(() => {}); // "not in a mode": already live
 }

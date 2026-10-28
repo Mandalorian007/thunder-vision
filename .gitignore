@@ -40,3 +40,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# scheduled jobs: jobs.json and run logs (TV_DATA_DIR)
+/.thunder/

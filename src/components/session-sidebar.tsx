@@ -3,6 +3,7 @@
 import { Ellipsis, Pencil, Plus, Skull, Zap } from "lucide-react";
 import type { ReactNode } from "react";
 import { IconButton, type TooltipSide } from "@/components/icon-button";
+import { SidebarSection } from "@/components/sidebar-section";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -78,6 +79,8 @@ type Props = {
   controls(side: TooltipSide): ReactNode;
   /** Pinned below the tabs (plan usage). */
   footer?: ReactNode;
+  /** Below the tabs, scrolling with them (scheduled jobs). */
+  jobs?: ReactNode;
 };
 
 export function SessionSidebar({
@@ -89,9 +92,49 @@ export function SessionSidebar({
   collapsed = false,
   controls,
   footer,
+  jobs,
 }: Props) {
   const zap = (
     <Zap className="size-5 shrink-0 fill-bolt text-bolt drop-shadow-[0_0_6px_var(--bolt)]" />
+  );
+  const tabs = (
+    <nav
+      role="tablist"
+      aria-label="tmux sessions"
+      aria-orientation="vertical"
+      className={cn(
+        "flex flex-col gap-px px-2 pb-1",
+        collapsed && "items-center gap-1",
+      )}
+    >
+      {sessions.map((s, i) => {
+        const tab = {
+          session: s,
+          index: i,
+          selected: s.name === active,
+          onSelect,
+        };
+        return (
+          <SessionMenu key={s.name} name={s.name} onAction={onAction}>
+            {collapsed ? (
+              <RailTab {...tab} />
+            ) : (
+              <SessionTab {...tab} onAction={onAction} />
+            )}
+          </SessionMenu>
+        );
+      })}
+      {collapsed && (
+        <IconButton
+          label="New session  ⌘K"
+          side="right"
+          onClick={onNew}
+          className="size-10 shrink-0 border border-dashed border-sidebar-border"
+        >
+          <Plus />
+        </IconButton>
+      )}
+    </nav>
   );
   return (
     <div className="flex h-full flex-col">
@@ -112,52 +155,34 @@ export function SessionSidebar({
         </div>
       )}
 
-      {!collapsed && (
-        <div className="flex items-center justify-between pr-2 pl-4 text-[11px] font-medium tracking-wider text-muted-foreground uppercase">
-          Sessions
-          <IconButton label="New session  ⌘K" onClick={onNew}>
-            <Plus />
-          </IconButton>
-        </div>
-      )}
-
-      <nav
-        role="tablist"
-        aria-label="tmux sessions"
-        aria-orientation="vertical"
+      <div
         className={cn(
-          "flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-2 pb-2 [scrollbar-width:thin]",
-          collapsed && "items-center gap-1",
+          "min-h-0 flex-1 overscroll-contain overflow-y-auto [scrollbar-width:thin]",
+          collapsed && "pb-2",
         )}
       >
-        {sessions.map((s, i) => {
-          const tab = {
-            session: s,
-            index: i,
-            selected: s.name === active,
-            onSelect,
-          };
-          return (
-            <SessionMenu key={s.name} name={s.name} onAction={onAction}>
-              {collapsed ? (
-                <RailTab {...tab} />
-              ) : (
-                <SessionTab {...tab} onAction={onAction} />
-              )}
-            </SessionMenu>
-          );
-        })}
-        {collapsed && (
-          <IconButton
-            label="New session  ⌘K"
-            side="right"
-            onClick={onNew}
-            className="size-10 shrink-0 border border-dashed border-sidebar-border"
+        {collapsed ? (
+          tabs
+        ) : (
+          <SidebarSection
+            id="sessions"
+            title="Sessions"
+            count={sessions.length}
+            action={
+              <IconButton
+                label="New session  ⌘K"
+                onClick={onNew}
+                className="size-7"
+              >
+                <Plus />
+              </IconButton>
+            }
           >
-            <Plus />
-          </IconButton>
+            {tabs}
+          </SidebarSection>
         )}
-      </nav>
+        {jobs}
+      </div>
 
       {footer && (
         <div className="flex shrink-0 justify-center border-t border-sidebar-border p-2 pb-[max(0.5rem,env(safe-area-inset-bottom))]">
@@ -235,13 +260,13 @@ function SessionTab({
       )}
     >
       {selected && (
-        <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-primary" />
+        <span className="absolute inset-y-1.5 left-0 w-0.5 rounded-full bg-primary" />
       )}
       <button
         role="tab"
         aria-selected={selected}
         onClick={() => onSelect(s.name)}
-        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-2 pl-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:py-3"
+        className="flex min-w-0 flex-1 items-center gap-2.5 rounded-md py-1 pl-3 text-left outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:py-2"
       >
         <StatusDot busy={busy} selected={selected} />
         <span className="min-w-0 flex-1">

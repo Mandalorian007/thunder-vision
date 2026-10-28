@@ -11,10 +11,12 @@ restarts when you save it.
 | `PORT`              | `7700`                 | Listen port, always on `127.0.0.1` ([why][sec])      |
 | `TV_ALLOWED_LOGINS` | _(anyone on tailnet)_  | Comma-separated Tailscale logins allowed in          |
 | `TMUX_BIN`          | `tmux`                 | tmux binary (set when PATH is minimal, e.g. launchd) |
-| `CLAUDE_BIN`        | _(SDK's bundled one)_  | `claude` binary for the plan usage check             |
+| `CLAUDE_BIN`        | _(see purpose)_        | `claude` for jobs and the plan usage check ([jobs])  |
+| `TV_DATA_DIR`       | `.thunder/` (here)     | Scheduled jobs and their run logs                    |
 | `TV_LAUNCHD_LABEL`  | `local.thunder-vision` | launchd label used by `scripts/install-launchd.sh`   |
 
 [sec]: ../README.md#security
+[jobs]: jobs.md#files
 
 `TV_ALLOWED_LOGINS` checks the `Tailscale-User-Login` header that
 `tailscale serve` adds, so it only means something while the server listens on

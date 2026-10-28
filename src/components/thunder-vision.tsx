@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  CalendarClock,
   Keyboard,
   Menu,
   PanelLeftClose,
@@ -18,6 +19,9 @@ import {
 } from "react";
 import { toast } from "sonner";
 import { IconButton, type TooltipSide } from "@/components/icon-button";
+import { JobDialog } from "@/components/job-dialog";
+import { JobList } from "@/components/job-list";
+import { JobView } from "@/components/job-view";
 import { KeyBar } from "@/components/key-bar";
 import { NewSessionPalette } from "@/components/new-session-palette";
 import { RenameDialog } from "@/components/rename-dialog";
@@ -43,26 +47,14 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { UsageMeters, useUsage } from "@/components/usage-meters";
+import type { Job, JobSummary } from "@/lib/jobs";
+import { notify, subscribe, usePref } from "@/lib/prefs";
 import { cn } from "@/lib/utils";
 import type { TmuxSession } from "@/server/tmux";
 
 const POLL_MS = 2000;
 const MIN_FONT = 9;
 const MAX_FONT = 22;
-
-// Tiny external stores so URL hash and localStorage prefs hydrate cleanly.
-const listeners = new Set<() => void>();
-const notify = () => listeners.forEach((l) => l());
-function subscribe(listener: () => void) {
-  listeners.add(listener);
-  window.addEventListener("hashchange", listener);
-  window.addEventListener("storage", listener);
-  return () => {
-    listeners.delete(listener);
-    window.removeEventListener("hashchange", listener);
-    window.removeEventListener("storage", listener);
-  };
-}
 
 function readHash() {
   const raw = window.location.hash.slice(1);
@@ -79,37 +71,21 @@ function setHash(name: string) {
   notify();
 }
 
-/** Per-device preference. Storage may be blocked (private mode), so never trust it. */
-function usePref<T>(key: string, serverDefault: T, clientDefault: () => T) {
-  const raw = useSyncExternalStore(
-    subscribe,
-    () => {
-      try {
-        const stored = localStorage.getItem(key);
-        if (stored !== null) return stored;
-      } catch {}
-      return JSON.stringify(clientDefault());
-    },
-    () => JSON.stringify(serverDefault),
-  );
-  const set = useCallback(
-    (next: T) => {
-      try {
-        localStorage.setItem(key, JSON.stringify(next));
-      } catch {}
-      notify();
-    },
-    [key],
-  );
-  return [JSON.parse(raw) as T, set] as const;
-}
-
 const isTouch = () => matchMedia("(pointer: coarse)").matches;
+
+/** "#job:<id>" or "#job:<id>/<run>". Colons can't be in a tmux session name. */
+function parseJobHash(hash: string | null) {
+  if (!hash?.startsWith("job:")) return null;
+  const [id, run] = hash.slice(4).split("/");
+  return { id, run: run || null };
+}
 
 export function ThunderVision({
   initialSessions,
+  initialJobs,
 }: {
   initialSessions: TmuxSession[];
+  initialJobs: JobSummary[];
 }) {
   const [sessions, setSessionsState] = useState(initialSessions);
   // Bumped on every update, so a poll that started before a create/kill
@@ -119,6 +95,14 @@ export function ThunderVision({
     sessionsVersion.current++;
     setSessionsState(next);
   }, []);
+  const [jobs, setJobsState] = useState(initialJobs);
+  const jobsVersion = useRef(0);
+  const setJobs = useCallback((next: JobSummary[]) => {
+    jobsVersion.current++;
+    setJobsState(next);
+  }, []);
+  // New job (null) or the one being edited; undefined when closed.
+  const [editing, setEditing] = useState<Job | null | undefined>(undefined);
   // Panes stay mounted after first visit so switching tabs is instant.
   const [visited, setVisited] = useState<string[]>([]);
   const [ctrl, setCtrl] = useState(false);
@@ -150,7 +134,11 @@ export function ThunderVision({
 
   const names = sessions.map((s) => s.name);
   const hash = useHash();
-  const active = hash && names.includes(hash) ? hash : (names[0] ?? null);
+  const jobHash = parseJobHash(hash);
+  const activeJob = jobHash ? jobs.find((j) => j.id === jobHash.id) : undefined;
+  // The session shown when no job is: the hash's, else the first.
+  const current = hash && names.includes(hash) ? hash : (names[0] ?? null);
+  const active = activeJob ? null : current;
   const opened = names.filter((n) => n === active || visited.includes(n));
 
   const select = (name: string) => {
@@ -158,6 +146,12 @@ export function ThunderVision({
       ...new Set([...prev, name, ...(active ? [active] : [])]),
     ]);
     setHash(name);
+  };
+
+  const selectJob = (id: string, run: string | null = null) => {
+    // Keep the session's pane mounted for when you come back.
+    if (active) setVisited((prev) => [...new Set([...prev, active])]);
+    setHash(run ? `job:${id}/${run}` : `job:${id}`);
   };
 
   // Poll tmux. New sessions appear as tabs; vanished ones drop their panes.
@@ -168,14 +162,22 @@ export function ThunderVision({
     let boot: string | null = null;
     const refresh = async () => {
       const version = sessionsVersion.current;
+      const jobsAt = jobsVersion.current;
       try {
-        const res = await fetch("/api/sessions", { cache: "no-store" });
+        const [res, jobsRes] = await Promise.all([
+          fetch("/api/sessions", { cache: "no-store" }),
+          fetch("/api/jobs", { cache: "no-store" }),
+        ]);
         const seen = res.headers.get("X-TV-Boot");
         if (boot && seen && seen !== boot) return location.reload();
         boot ??= seen;
         const next = res.ok ? await res.json() : null;
         if (next && !stopped && version === sessionsVersion.current) {
           setSessions(next);
+        }
+        const nextJobs = jobsRes.ok ? await jobsRes.json() : null;
+        if (nextJobs && !stopped && jobsAt === jobsVersion.current) {
+          setJobs(nextJobs);
         }
       } catch {}
     };
@@ -187,7 +189,7 @@ export function ThunderVision({
       clearInterval(id);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [setSessions]);
+  }, [setSessions, setJobs]);
 
   // ⌥1–⌥9 jumps to a tab, ⌘K opens the palette. Capture phase so they win
   // over the focused terminal. (Ctrl+K stays with the shell.)
@@ -228,6 +230,11 @@ export function ThunderVision({
   const openPalette = () => {
     setDrawerOpen(false);
     setPaletteOpen(true);
+  };
+
+  const newJob = () => {
+    setDrawerOpen(false);
+    setEditing(null);
   };
 
   const onAction = (action: SessionAction, name: string) => {
@@ -358,6 +365,15 @@ export function ThunderVision({
           onAction={onAction}
           collapsed={collapsed}
           controls={(side) => controls(side, true)}
+          jobs={
+            <JobList
+              jobs={jobs}
+              active={activeJob?.id ?? null}
+              onSelect={(id) => selectJob(id)}
+              onNew={newJob}
+              collapsed={collapsed}
+            />
+          }
           footer={
             (!collapsed || hasUsage) && (
               <UsageMeters
@@ -391,6 +407,17 @@ export function ThunderVision({
             onNew={openPalette}
             onAction={onAction}
             controls={(side) => controls(side, false)}
+            jobs={
+              <JobList
+                jobs={jobs}
+                active={activeJob?.id ?? null}
+                onSelect={(id) => {
+                  selectJob(id);
+                  setDrawerOpen(false);
+                }}
+                onNew={newJob}
+              />
+            }
             footer={
               <UsageMeters
                 usage={usage}
@@ -415,6 +442,14 @@ export function ThunderVision({
                 <span className="absolute top-1.5 right-1.5 size-1.5 rounded-full bg-bolt" />
               )}
             </IconButton>
+            {activeJob && (
+              <>
+                <CalendarClock className="size-4 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 truncate text-sm">
+                  {activeJob.name}
+                </span>
+              </>
+            )}
             {activeSession && (
               <>
                 <StatusDot
@@ -430,30 +465,49 @@ export function ThunderVision({
               <IconButton label="New session" onClick={openPalette}>
                 <Plus />
               </IconButton>
-              {keysButton("bottom")}
+              {!activeJob && keysButton("bottom")}
             </div>
           </div>
         </header>
 
         <main className="flex min-h-0 flex-1 flex-col bg-terminal">
-          {sessions.length === 0 ? (
-            <EmptyState onNew={openPalette} />
-          ) : (
-            opened.map((name) => (
-              <TerminalPane
-                key={name}
-                session={name}
-                active={name === active}
-                fontSize={fontSize}
-                ctrlRef={ctrlRef}
-                onCtrlConsumed={() => setCtrlArmed(false)}
-                register={register}
-              />
-            ))
+          {activeJob && (
+            <JobView
+              key={activeJob.id}
+              job={activeJob}
+              runId={jobHash?.run ?? null}
+              fontSize={fontSize}
+              onSelectRun={(run) => selectJob(activeJob.id, run)}
+              onEdit={() => setEditing(activeJob)}
+              onJobs={setJobs}
+              onDeleted={() => setHash(current ?? "")}
+              onOpenSession={(name, next) => {
+                setSessions(next);
+                select(name);
+              }}
+              onSwitchSession={select}
+            />
           )}
+          {sessions.length === 0
+            ? !activeJob && <EmptyState onNew={openPalette} />
+            : opened.map((name) => (
+                <TerminalPane
+                  key={name}
+                  session={name}
+                  active={name === active}
+                  fontSize={fontSize}
+                  ctrlRef={ctrlRef}
+                  onCtrlConsumed={() => setCtrlArmed(false)}
+                  register={register}
+                  inMode={
+                    sessions.find((s) => s.name === name)?.inMode ?? false
+                  }
+                  onSessions={setSessions}
+                />
+              ))}
         </main>
 
-        {showKeys && sessions.length > 0 && (
+        {showKeys && active && (
           <KeyBar
             ctrl={ctrl}
             onToggleCtrl={() => setCtrlArmed(!ctrl)}
@@ -472,6 +526,17 @@ export function ThunderVision({
           select(name);
         }}
         onCloseFocus={focusTerminal}
+      />
+
+      <JobDialog
+        open={editing !== undefined}
+        job={editing ?? null}
+        onOpenChange={(open) => !open && setEditing(undefined)}
+        onSaved={(id, next) => {
+          setJobs(next);
+          setEditing(undefined);
+          selectJob(id);
+        }}
       />
 
       <RenameDialog
