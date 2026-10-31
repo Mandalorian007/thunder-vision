@@ -152,11 +152,18 @@ function checkedLabel(usage: Usage) {
 /** Checks run hourly, so older than that means they're failing. */
 const isStale = (usage: Usage) => Date.now() - usage.updatedAt > 70 * 60_000;
 
-/** "max" → "Max plan". */
-const planLabel = (usage: Usage) =>
-  usage.plan
-    ? `${usage.plan[0].toUpperCase()}${usage.plan.slice(1)} plan`
-    : "Plan usage";
+/**
+ * Ultra (formerly Max 20x) has no 5-hour window, but Claude Code still
+ * reports it as "max"; a Max login with only the weekly cap is Ultra.
+ */
+const planName = (usage: Usage) =>
+  usage.plan === "max" && !usage.session && usage.week ? "ultra" : usage.plan;
+
+/** "max" → "Max plan", "ultra" → "Ultra plan". */
+const planLabel = (usage: Usage) => {
+  const plan = planName(usage);
+  return plan ? `${plan[0].toUpperCase()}${plan.slice(1)} plan` : "Plan usage";
+};
 
 /** Session (5-hour) and weekly plan caps, as /usage shows them. */
 export function UsageMeters({
