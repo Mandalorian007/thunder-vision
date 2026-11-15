@@ -24,8 +24,14 @@ const CHUNK = 4 << 20;
 const META_EVERY_MS = 15_000;
 const MIN_UPDATE_MS = 1_500;
 const TEXT = 280;
+const GIST = 180;
+const DETAIL = 2_500;
+
+/** Bumped when parsing changes, so saved state is re-read from the top. */
+const STATE_V = 2;
 
 type State = {
+  v: number;
   sessionId: string;
   transcript: string;
   cursor: number;
@@ -64,6 +70,47 @@ const clip = (s: string, n = TEXT) => {
   const t = s.replace(/\s+/g, " ").trim();
   return t.length > n ? `${t.slice(0, n - 1)}…` : t;
 };
+
+/** Markdown kept for the expanded view: newlines intact, length capped. */
+const block = (s: string, n = DETAIL) => {
+  const t = s.trim();
+  return t.length > n ? `${t.slice(0, n - 1).trimEnd()}…` : t;
+};
+
+/**
+ * The gist of a markdown message for a one-line row: its first paragraph
+ * that isn't a heading, with the markup stripped, cut at a word.
+ */
+function gist(md: string, n = GIST) {
+  const paras = md
+    .split(/\n\s*\n|\n(?=#{1,6}\s|[-*]\s|\d+\.\s)/)
+    .map((p) => p.trim())
+    .filter(Boolean);
+  const para =
+    paras.find((p) => !/^#{1,6}\s/.test(p) && !/^[-*_]{3,}$/.test(p)) ??
+    paras[0] ??
+    "";
+  const plain = para
+    .replace(/^#{1,6}\s+/gm, "")
+    .replace(/^\s*(?:[-*]|\d+\.)\s+/gm, "")
+    .replace(/!?\[([^\]]*)\]\([^)]*\)/g, "$1")
+    .replace(/(\*\*|__|\*|`)(.+?)\1/g, "$2")
+    .replace(/`/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (plain.length <= n) return plain;
+  const cut = plain.slice(0, n);
+  const sentence = cut.search(/[.!?](?=\s)[^.!?]*$/);
+  if (sentence > n * 0.5) return cut.slice(0, sentence + 1);
+  return `${cut.slice(0, cut.lastIndexOf(" ") > n * 0.6 ? cut.lastIndexOf(" ") : n - 1).trimEnd()}…`;
+}
+
+/** text + detail for a markdown message: detail only when text loses some. */
+function summarize(md: string) {
+  const text = gist(md);
+  const full = md.replace(/\s+/g, " ").trim();
+  return full === text ? { text } : { text, detail: block(md) };
+}
 
 function freshFacts(pane: ClaudePane): Facts {
   return {
@@ -135,6 +182,16 @@ function humanText(text: string) {
 const RELEASE =
   /\bgh pr merge\b|\bmerge-pr\b|\b(?:npm|pnpm|cargo) publish\b|\bgit tag\b/;
 const COMMIT = /\bgit commit\b/;
+
+/** 'Agent "X" completed' → "completed", when the row already names X. */
+function agentNote(summary: string, name: string | undefined) {
+  if (!name) return summary;
+  const q = `"${name}"`;
+  const i = summary.indexOf(q);
+  if (i < 0) return summary;
+  const rest = summary.slice(i + q.length).trim();
+  return rest ? rest[0].toUpperCase() + rest.slice(1) : summary;
+}
 
 function lifecycleOf(status: string, note: string): Lifecycle | null {
   if (status === "completed") {
@@ -255,7 +312,8 @@ class Reader {
         at,
         kind: "handback",
         weight: 1,
-        text: `${agent?.description ?? s(origin?.name) ?? "Agent"}: ${clip(report)}`,
+        who: agent?.description ?? (s(origin?.name) || "Agent"),
+        ...summarize(report),
       });
       return;
     }
@@ -266,7 +324,15 @@ class Reader {
       const said = humanText(text);
       if (!said || e.isMeta) return;
       this.f.counts.human++;
-      this.event({ uuid, at, kind: "human", weight: 0, text: clip(said, 600) });
+      const long = said.trim().length > 600;
+      this.event({
+        uuid,
+        at,
+        kind: "human",
+        weight: 0,
+        text: clip(said, 600),
+        ...(long ? { detail: block(said) } : {}),
+      });
       return;
     }
 
@@ -332,8 +398,10 @@ class Reader {
       kind: bad ? "error" : "agent-end",
       weight: lifecycle === "waiting" ? 0 : 1,
       alert: bad || undefined,
+      who: agent?.description,
       text: clip(
-        tag(text, "summary") || `${agent?.description ?? taskId} ${lifecycle}`,
+        agentNote(tag(text, "summary"), agent?.description) ||
+          `${agent ? "" : `${taskId} `}${lifecycle}`,
       ),
     });
   }
@@ -372,7 +440,14 @@ class Reader {
             at,
             kind: "spawn",
             weight: 1,
-            text: clip(`Started ${description}`),
+            who: description,
+            text: [
+              "Started",
+              agent.type && agent.type !== "general-purpose" ? agent.type : "",
+              agent.background ? "in the background" : "",
+            ]
+              .filter(Boolean)
+              .join(" · "),
           });
           break;
         }
@@ -385,7 +460,13 @@ class Reader {
             at,
             kind: "message",
             weight: 0,
-            text: clip(`→ ${who}: ${s(input.summary) || s(input.message)}`),
+            who: `→ ${who}`,
+            ...(s(input.summary)
+              ? {
+                  text: gist(s(input.summary)),
+                  detail: block(s(input.message)) || undefined,
+                }
+              : summarize(s(input.message))),
           });
           break;
         }
@@ -469,7 +550,8 @@ class Reader {
 
 function load(pane: ClaudePane): State | null {
   const st = readJson<State>(path.join(paneDir(pane.paneId), "state.json"));
-  if (!st || st.sessionId !== pane.sessionId || !st.facts) return null;
+  if (!st || st.v !== STATE_V || st.sessionId !== pane.sessionId) return null;
+  if (!st.facts) return null;
   return st;
 }
 
@@ -530,8 +612,13 @@ async function readNew(st: State, l: Live, reader: Reader) {
 
 async function update(pane: ClaudePane, l: Live) {
   if (!pane.transcript) return;
-  if (!l.state || l.state.sessionId !== pane.sessionId) {
+  if (
+    !l.state ||
+    l.state.v !== STATE_V ||
+    l.state.sessionId !== pane.sessionId
+  ) {
     l.state = load(pane) ?? {
+      v: STATE_V,
       sessionId: pane.sessionId,
       transcript: pane.transcript,
       cursor: 0,

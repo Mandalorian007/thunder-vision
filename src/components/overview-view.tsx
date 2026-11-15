@@ -2,6 +2,7 @@
 
 import {
   Bot,
+  ChevronRight,
   CircleAlert,
   GitCommitHorizontal,
   GitMerge,
@@ -14,7 +15,8 @@ import {
   Sparkles,
   User,
 } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useState, type ReactNode } from "react";
+import { Summary } from "@/components/rich-text";
 import type {
   AgentFact,
   EventKind,
@@ -120,16 +122,34 @@ function Stat({ label, value }: { label: string; value: ReactNode }) {
   );
 }
 
-function AgentRow({ a, now }: { a: AgentFact; now: number }) {
+const LANDED = new Set<EventKind>(["handback", "release", "pr", "error"]);
+
+function AgentRow({
+  a,
+  now,
+  last,
+}: {
+  a: AgentFact;
+  now: number;
+  /** The session's latest message to it. */
+  last?: string;
+}) {
   const live = a.lifecycle === "running" || a.lifecycle === "waiting";
   return (
     <li className="flex items-center gap-2 py-1.5 pointer-coarse:py-2.5">
       <Chip lifecycle={a.lifecycle} />
-      <span className="min-w-0 flex-1 truncate">
-        {a.description}
-        {a.nested && (
-          <span className="ml-1.5 text-xs text-muted-foreground">
-            (sub-agent)
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span className="truncate">
+          {a.description}
+          {a.nested && (
+            <span className="ml-1.5 text-xs text-muted-foreground">
+              (sub-agent)
+            </span>
+          )}
+        </span>
+        {last && (
+          <span className="truncate text-xs text-muted-foreground">
+            Last told: {last}
           </span>
         )}
       </span>
@@ -150,15 +170,35 @@ function AgentRow({ a, now }: { a: AgentFact; now: number }) {
   );
 }
 
-function EventRow({ e, isNew }: { e: OverviewEvent; isNew: boolean }) {
-  return (
-    <li
-      className={cn(
-        "flex gap-2.5 rounded-md px-2 py-1.5 pointer-coarse:py-2.5",
-        isNew && "bg-primary/5",
-        e.kind === "human" && "bg-muted/60",
-      )}
-    >
+function dayLabel(iso: string, now: number) {
+  const d = new Date(iso);
+  const days = Math.round(
+    (new Date(now).setHours(0, 0, 0, 0) - new Date(iso).setHours(0, 0, 0, 0)) /
+      86_400_000,
+  );
+  if (days === 0) return "Today";
+  if (days === 1) return "Yesterday";
+  return d.toLocaleDateString([], {
+    weekday: "short",
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function EventRow({
+  e,
+  isNew,
+  when,
+}: {
+  e: OverviewEvent;
+  isNew: boolean;
+  /** Shown instead of the clock time. */
+  when?: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const quiet = e.weight === 0 && e.kind !== "human";
+  const line = (
+    <>
       <span
         className={cn(
           "mt-0.5 shrink-0 text-muted-foreground [&_svg]:size-3.5",
@@ -171,15 +211,62 @@ function EventRow({ e, isNew }: { e: OverviewEvent; isNew: boolean }) {
       <span
         className={cn(
           "min-w-0 flex-1 break-words",
-          e.weight === 0 && e.kind !== "human" && "text-muted-foreground",
+          quiet && "text-muted-foreground",
           e.alert && "text-destructive",
+          !open && "line-clamp-3",
         )}
       >
+        {e.who && (
+          <span className={cn("font-medium", !quiet && "text-foreground")}>
+            {e.who}
+            {e.text ? " " : ""}
+          </span>
+        )}
+        {e.who && e.text && <span className="text-muted-foreground">· </span>}
         {e.text}
       </span>
-      <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-        {clock(e.at)}
+      <span className="flex shrink-0 items-start gap-1 text-xs text-muted-foreground tabular-nums">
+        {when ?? clock(e.at)}
+        {e.detail && (
+          <ChevronRight
+            className={cn(
+              "mt-px size-3.5 transition-transform",
+              open && "rotate-90",
+            )}
+          />
+        )}
       </span>
+    </>
+  );
+  const row = cn(
+    "flex w-full gap-2.5 rounded-md px-2 py-1.5 text-left pointer-coarse:py-2.5",
+    isNew && "bg-primary/5",
+    e.kind === "human" && "bg-muted/60",
+  );
+  if (!e.detail) {
+    return (
+      <li>
+        <div className={row}>{line}</div>
+      </li>
+    );
+  }
+  return (
+    <li>
+      <button
+        aria-expanded={open}
+        onClick={() => setOpen(!open)}
+        className={cn(
+          row,
+          "outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring/50",
+        )}
+      >
+        {line}
+      </button>
+      {open && (
+        <div className="mt-1 mb-2 ml-8 rounded-lg border bg-card px-3 py-2.5">
+          <Summary text={e.detail} />
+        </div>
+      )}
     </li>
   );
 }
@@ -272,10 +359,18 @@ export function OverviewView({
   ).length;
   const seen = seenAtOpen ?? "";
   const events = facts.events
-    .filter((e) => !keyOnly || e.weight > 0 || e.kind === "human")
+    .filter((e) => !keyOnly || (e.weight > 0 && e.kind !== "human"))
     .slice(-60)
     .reverse();
-  const lastHuman = [...facts.events].reverse().find((e) => e.kind === "human");
+  const landed = facts.events
+    .filter((e) => LANDED.has(e.kind))
+    .slice(-8)
+    .reverse();
+  // The latest word between the session and each agent: what it was told.
+  const lastWord = new Map<string, string>();
+  for (const e of facts.events) {
+    if (e.kind === "message" && e.who) lastWord.set(e.who.slice(2), e.text);
+  }
   const program = facts.kind === "program";
 
   return (
@@ -321,7 +416,7 @@ export function OverviewView({
             </>
           ) : (
             <>
-              <Stat label="your messages" value={facts.counts.human} />
+              <Stat label="agents run" value={facts.counts.spawns} />
               <Stat label="commits" value={facts.counts.commits} />
               <Stat label="PRs" value={facts.counts.prs} />
               <Stat label="compactions" value={facts.counts.compactions} />
@@ -329,27 +424,39 @@ export function OverviewView({
           )}
         </div>
 
-        {lastHuman && (
-          <Section title="Your last message" aside={ago(lastHuman.at, now)}>
-            <p className="rounded-lg border bg-card px-3 py-2 text-sm whitespace-pre-wrap">
-              {lastHuman.text}
-            </p>
-          </Section>
-        )}
-
         {(program || active.length > 0) && (
-          <Section title="Agents now" aside={`${active.length} active`}>
+          <Section title="In flight" aside={`${active.length} active`}>
             {active.length ? (
               <ul className="divide-y text-sm">
                 {active.map((a) => (
-                  <AgentRow key={a.toolUseId} a={a} now={now} />
+                  <AgentRow
+                    key={a.toolUseId}
+                    a={a}
+                    now={now}
+                    last={lastWord.get(a.description)}
+                  />
                 ))}
               </ul>
             ) : (
               <p className="text-sm text-muted-foreground">
-                No agents running.
+                Nothing running right now.
               </p>
             )}
+          </Section>
+        )}
+
+        {landed.length > 0 && (
+          <Section title="Landed" aside="reports, merges, PRs">
+            <ul className="flex flex-col gap-px text-sm">
+              {landed.map((e, i) => (
+                <EventRow
+                  key={`${e.uuid}:${i}`}
+                  e={e}
+                  isNew={!!seen && e.at > seen}
+                  when={ago(e.at, now)}
+                />
+              ))}
+            </ul>
           </Section>
         )}
 
@@ -360,18 +467,25 @@ export function OverviewView({
               onClick={() => setKeyOnly(!keyOnly)}
               className="rounded px-1.5 py-0.5 hover:bg-muted pointer-coarse:py-1.5"
             >
-              {keyOnly ? "Show messages to agents" : "Key events only"}
+              {keyOnly ? "Show everything" : "Key events only"}
             </button>
           }
         >
-          <ul className="flex flex-col text-sm">
-            {events.map((e, i) => (
-              <EventRow
-                key={`${e.uuid}:${i}`}
-                e={e}
-                isNew={!!seen && e.at > seen}
-              />
-            ))}
+          <ul className="flex flex-col gap-px text-sm">
+            {events.map((e, i) => {
+              const day = dayLabel(e.at, now);
+              const prev = i > 0 ? dayLabel(events[i - 1].at, now) : null;
+              return (
+                <Fragment key={`${e.uuid}:${i}`}>
+                  {day !== prev && (
+                    <li className="sticky top-0 z-10 bg-background/95 px-2 pt-3 pb-1 text-[11px] font-medium text-muted-foreground backdrop-blur first:pt-0">
+                      {day}
+                    </li>
+                  )}
+                  <EventRow e={e} isNew={!!seen && e.at > seen} />
+                </Fragment>
+              );
+            })}
           </ul>
         </Section>
 

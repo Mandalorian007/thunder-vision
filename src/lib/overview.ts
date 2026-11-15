@@ -51,6 +51,10 @@ export type OverviewEvent = {
   at: string;
   kind: EventKind;
   text: string;
+  /** The agent it's about, shown in bold before the text. */
+  who?: string;
+  /** The full message as markdown, when `text` is only its first line. */
+  detail?: string;
   /** Counts toward the "new" badge. */
   weight: 0 | 1;
   /** Something went wrong: shown red. */
