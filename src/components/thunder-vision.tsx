@@ -819,18 +819,6 @@ function ViewTabs({
     >
       {icon}
       {label}
-      {on && !overview && !!badge?.newEvents && (
-        <span
-          className={cn(
-            "rounded-full px-1.5 text-[10px] leading-4 tabular-nums",
-            badge.alerts
-              ? "bg-destructive text-white"
-              : "bg-primary text-primary-foreground",
-          )}
-        >
-          {badge.newEvents > 99 ? "99+" : badge.newEvents}
-        </span>
-      )}
     </button>
   );
   return (

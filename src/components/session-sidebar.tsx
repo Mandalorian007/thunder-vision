@@ -47,24 +47,6 @@ function idleLabel(seconds: number) {
 }
 
 /** New Overview events since you last looked; red if something failed. */
-export function NewBadge({ s }: { s: TmuxSession }) {
-  const n = s.overview?.newEvents ?? 0;
-  if (!n) return null;
-  return (
-    <span
-      title={`${n} new in Overview${s.overview?.alerts ? `, ${s.overview.alerts} failed` : ""}`}
-      className={cn(
-        "shrink-0 rounded-full px-1.5 text-[10px] leading-4 font-medium tabular-nums",
-        s.overview?.alerts
-          ? "bg-destructive text-white"
-          : "bg-primary/15 text-primary",
-      )}
-    >
-      {n > 99 ? "99+" : n}
-    </span>
-  );
-}
-
 /** "thunder-vision" → "tv", "thunder" → "th": rail labels. */
 function abbrev(name: string) {
   const parts = name.split(/[-_.\s]+/).filter(Boolean);
@@ -348,7 +330,6 @@ function SessionTab({
             <span className="truncate font-mono text-[13px] leading-5">
               {s.name}
             </span>
-            <NewBadge s={s} />
           </span>
           <span className="block truncate text-[11px] leading-4 text-muted-foreground">
             {s.overview?.agentsRunning
@@ -439,14 +420,6 @@ function RailTab({
           )}
         >
           {abbrev(s.name)}
-          {!!s.overview?.newEvents && (
-            <span
-              className={cn(
-                "absolute bottom-1 left-1 size-1.5 rounded-full",
-                s.overview.alerts ? "bg-destructive" : "bg-primary",
-              )}
-            />
-          )}
           <span className="absolute top-1 right-1">
             <StatusDot busy={busy} selected={selected} />
           </span>
