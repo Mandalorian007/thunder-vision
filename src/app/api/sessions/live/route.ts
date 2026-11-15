@@ -1,5 +1,6 @@
 import { body, crossSite, error, noStore } from "@/server/http";
 import { exitCopyMode, hasSession, listSessions } from "@/server/tmux";
+import { withBadges } from "@/server/overview";
 
 /** { name } → out of copy mode, back to live output. */
 export async function POST(req: Request) {
@@ -10,7 +11,7 @@ export async function POST(req: Request) {
   }
   await exitCopyMode(name);
   return Response.json(
-    { sessions: await listSessions() },
+    { sessions: await withBadges(await listSessions()) },
     { headers: noStore },
   );
 }

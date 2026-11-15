@@ -1,5 +1,6 @@
 import { body, crossSite, error, noStore } from "@/server/http";
 import { listSessions, setSessionOrder } from "@/server/tmux";
+import { withBadges } from "@/server/overview";
 
 /**
  * { names } → the sidebar order, top first. Names that aren't sessions are
@@ -17,7 +18,7 @@ export async function PUT(req: Request) {
   const rest = sessions.map((s) => s.name).filter((n) => !listed.includes(n));
   await setSessionOrder([...listed, ...rest]);
   return Response.json(
-    { sessions: await listSessions() },
+    { sessions: await withBadges(await listSessions()) },
     { headers: noStore },
   );
 }

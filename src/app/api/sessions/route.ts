@@ -13,6 +13,7 @@ import {
   newSession,
   renameSession,
 } from "@/server/tmux";
+import { withBadges } from "@/server/overview";
 
 const noStore = { "Cache-Control": "no-store" };
 
@@ -43,7 +44,9 @@ async function body(req: Request): Promise<Record<string, unknown>> {
 const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
 
 export async function GET() {
-  return Response.json(await listSessions(), { headers: noStore });
+  return Response.json(await withBadges(await listSessions()), {
+    headers: noStore,
+  });
 }
 
 /**
@@ -75,7 +78,7 @@ export async function POST(req: Request) {
     throw err;
   }
   return Response.json(
-    { name, sessions: await listSessions() },
+    { name, sessions: await withBadges(await listSessions()) },
     { status: 201, headers: noStore },
   );
 }
@@ -93,7 +96,7 @@ export async function PATCH(req: Request) {
     await renameSession(from, to);
   }
   return Response.json(
-    { name: to, sessions: await listSessions() },
+    { name: to, sessions: await withBadges(await listSessions()) },
     { headers: noStore },
   );
 }
@@ -107,7 +110,7 @@ export async function DELETE(req: Request) {
   }
   await killSession(name);
   return Response.json(
-    { sessions: await listSessions() },
+    { sessions: await withBadges(await listSessions()) },
     { headers: noStore },
   );
 }

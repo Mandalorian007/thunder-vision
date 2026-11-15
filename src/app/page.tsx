@@ -1,6 +1,7 @@
 import { connection } from "next/server";
 import { ThunderVision } from "@/components/thunder-vision";
 import { listSessions } from "@/server/tmux";
+import { withBadges } from "@/server/overview";
 import { summaries, WORKFLOW_DOCS } from "@/server/workflows";
 
 export default async function Home() {
@@ -8,7 +9,7 @@ export default async function Home() {
   await connection();
   return (
     <ThunderVision
-      initialSessions={await listSessions()}
+      initialSessions={await withBadges(await listSessions())}
       initialWorkflows={summaries()}
       workflowDocs={WORKFLOW_DOCS}
     />

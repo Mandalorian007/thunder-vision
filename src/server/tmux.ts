@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import os from "node:os";
 import { promisify } from "node:util";
+import type { OverviewBadge } from "@/lib/overview";
 
 const run = promisify(execFile);
 const home = os.homedir();
@@ -22,6 +23,8 @@ export type TmuxSession = {
   inMode: boolean;
   /** Its place in the sidebar, once dragged; null sorts after, by age. */
   order: number | null;
+  /** Set by the session routes when Claude runs here (src/server/overview). */
+  overview?: OverviewBadge;
 };
 
 /**

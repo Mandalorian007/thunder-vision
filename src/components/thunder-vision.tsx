@@ -2,10 +2,12 @@
 
 import {
   Keyboard,
+  LayoutDashboard,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
   Plus,
+  SquareTerminal,
   TerminalSquare,
   Workflow,
 } from "lucide-react";
@@ -22,6 +24,7 @@ import { IconButton, type TooltipSide } from "@/components/icon-button";
 import { KeyBar } from "@/components/key-bar";
 import { NewSessionPalette } from "@/components/new-session-palette";
 import { NewWorkflowDialog } from "@/components/new-workflow-dialog";
+import { OverviewView } from "@/components/overview-view";
 import { RenameDialog } from "@/components/rename-dialog";
 import {
   BUSY_SECONDS,
@@ -47,6 +50,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { UsageMeters, useUsage } from "@/components/usage-meters";
 import { WorkflowList } from "@/components/workflow-list";
 import { WorkflowView } from "@/components/workflow-view";
+import type { OverviewBadge } from "@/lib/overview";
 import type { WorkflowSummary } from "@/lib/workflows";
 import { notify, subscribe, usePref } from "@/lib/prefs";
 import { shellPath, uploadFile } from "@/lib/upload";
@@ -107,13 +111,37 @@ export function ThunderVision({
   workflowDocs: string;
 }) {
   const [sessions, setSessionsState] = useState(initialSessions);
+  // Sessions that have had Claude in them: they keep their Terminal |
+  // Overview tabs, so the terminal doesn't resize when Claude exits.
+  const [withClaude, setWithClaude] = useState(
+    () => new Set(initialSessions.filter((s) => s.overview).map((s) => s.name)),
+  );
   // Bumped on every update, so a poll that started before a create/kill
   // can't land afterwards and resurrect the old list.
   const sessionsVersion = useRef(0);
   const setSessions = useCallback((next: TmuxSession[]) => {
     sessionsVersion.current++;
     setSessionsState(next);
+    setWithClaude((prev) =>
+      next.some((s) => s.overview && !prev.has(s.name))
+        ? new Set([
+            ...prev,
+            ...next.filter((s) => s.overview).map((s) => s.name),
+          ])
+        : prev,
+    );
   }, []);
+  // Sessions showing their Overview instead of the terminal.
+  const [overviewOn, setOverviewOn] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
+  const showOverview = (name: string, on: boolean) =>
+    setOverviewOn((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(name);
+      else next.delete(name);
+      return next;
+    });
   const [workflows, setWorkflowsState] = useState(initialWorkflows);
   const workflowsVersion = useRef(0);
   const setWorkflows = useCallback((next: WorkflowSummary[]) => {
@@ -252,7 +280,9 @@ export function ThunderVision({
 
   const focusTerminal = () => {
     // Popping the keyboard on a phone is worse than one extra tap.
-    if (active && !isTouch()) panes.current.get(active)?.focus();
+    if (active && !overviewOn.has(active) && !isTouch()) {
+      panes.current.get(active)?.focus();
+    }
   };
 
   const openPalette = () => {
@@ -480,6 +510,8 @@ export function ThunderVision({
   const hasUsage = !!(usage?.session || usage?.week);
 
   const activeSession = sessions.find((s) => s.name === active);
+  const hasTabs = !!active && withClaude.has(active);
+  const overviewShown = hasTabs && overviewOn.has(active);
   const otherBusy = sessions.some(
     (s) => s.name !== active && s.idleSeconds < BUSY_SECONDS,
   );
@@ -650,13 +682,27 @@ export function ThunderVision({
               onSwitchSession={select}
             />
           )}
+          {hasTabs && activeSession && (
+            <ViewTabs
+              overview={overviewShown}
+              badge={activeSession.overview}
+              onOverview={(on) => showOverview(activeSession.name, on)}
+            />
+          )}
+          {overviewShown && activeSession && (
+            <OverviewView
+              key={activeSession.name}
+              session={activeSession.name}
+              newEvents={activeSession.overview?.newEvents ?? 0}
+            />
+          )}
           {sessions.length === 0
             ? !activeWorkflow && <EmptyState onNew={openPalette} />
             : opened.map((name) => (
                 <TerminalPane
                   key={name}
                   session={name}
-                  active={name === active}
+                  active={name === active && !overviewShown}
                   fontSize={fontSize}
                   ctrlRef={ctrlRef}
                   onCtrlConsumed={() => setCtrlArmed(false)}
@@ -669,7 +715,7 @@ export function ThunderVision({
               ))}
         </main>
 
-        {showKeys && active && (
+        {showKeys && active && !overviewShown && (
           <KeyBar
             ctrl={ctrl}
             onToggleCtrl={() => setCtrlArmed(!ctrl)}
@@ -745,6 +791,61 @@ export function ThunderVision({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+    </div>
+  );
+}
+
+/** Terminal | Overview, above sessions that have Claude in them. */
+function ViewTabs({
+  overview,
+  badge,
+  onOverview,
+}: {
+  overview: boolean;
+  badge: OverviewBadge | undefined;
+  onOverview(on: boolean): void;
+}) {
+  const tab = (on: boolean, label: string, icon: React.ReactNode) => (
+    <button
+      role="tab"
+      aria-selected={overview === on}
+      onClick={() => onOverview(on)}
+      className={cn(
+        "flex h-7 items-center gap-1.5 rounded-md px-2.5 text-xs font-medium transition-colors outline-none focus-visible:ring-2 focus-visible:ring-ring/50 pointer-coarse:h-9 pointer-coarse:px-3 [&_svg]:size-3.5",
+        overview === on
+          ? "bg-muted text-foreground"
+          : "text-muted-foreground hover:text-foreground",
+      )}
+    >
+      {icon}
+      {label}
+      {on && !overview && !!badge?.newEvents && (
+        <span
+          className={cn(
+            "rounded-full px-1.5 text-[10px] leading-4 tabular-nums",
+            badge.alerts
+              ? "bg-destructive text-white"
+              : "bg-primary text-primary-foreground",
+          )}
+        >
+          {badge.newEvents > 99 ? "99+" : badge.newEvents}
+        </span>
+      )}
+    </button>
+  );
+  return (
+    <div
+      role="tablist"
+      className="flex h-9 shrink-0 items-center gap-1 border-b bg-background px-2 pointer-coarse:h-11"
+    >
+      {tab(false, "Terminal", <SquareTerminal />)}
+      {tab(true, "Overview", <LayoutDashboard />)}
+      {!!badge?.agentsRunning && (
+        <span className="ml-auto truncate pr-1 text-xs text-muted-foreground">
+          {badge.agentsRunning} agent{badge.agentsRunning === 1 ? "" : "s"}{" "}
+          running
+        </span>
+      )}
     </div>
   );
 }
