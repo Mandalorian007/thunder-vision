@@ -230,15 +230,30 @@ function run(input: string, cwd: string) {
     });
     let out = "";
     let err = "";
-    const timer = setTimeout(() => child.kill("SIGTERM"), TIMEOUT_MS);
+    let settled = false;
+    const timer = setTimeout(() => {
+      child.kill("SIGTERM");
+      // If it ignores that, kill it and give up, so runs can't pile up.
+      setTimeout(() => {
+        child.kill("SIGKILL");
+        if (!settled) {
+          settled = true;
+          reject(new Error("timed out"));
+        }
+      }, 5000).unref();
+    }, TIMEOUT_MS);
     child.stdout.on("data", (d) => (out += d));
     child.stderr.on("data", (d) => (err += d));
     child.on("error", (e) => {
       clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       reject(e);
     });
     child.on("close", (code, signal) => {
       clearTimeout(timer);
+      if (settled) return;
+      settled = true;
       let json: Raw | null = null;
       try {
         json = JSON.parse(out);

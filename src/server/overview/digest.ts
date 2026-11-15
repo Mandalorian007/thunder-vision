@@ -43,11 +43,13 @@ function ends(t: string, head: number, tail = 0) {
     : `${x.slice(0, head)}…`;
 }
 
+const pad = (n: number) => String(n).padStart(2, "0");
+
 function hhmm(iso: string) {
   const d = new Date(iso);
   return Number.isNaN(d.getTime())
     ? ""
-    : `${d.toISOString().slice(5, 10)} ${d.toTimeString().slice(0, 5)}`;
+    : `${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${d.toTimeString().slice(0, 5)}`;
 }
 
 export async function buildDigest(transcript: string): Promise<Digest> {
@@ -58,7 +60,11 @@ export async function buildDigest(transcript: string): Promise<Digest> {
   const byTool = new Map<string, string>(); // tool_use id → description
   const bash = new Map<string, string>(); // tool_use id → description
 
-  for (const l of raw.split("\n")) {
+  const rows = raw.split("\n");
+  for (let i = 0; i < rows.length; i++) {
+    // Long transcripts: let terminals and requests through now and then.
+    if (i % 2000 === 1999) await new Promise((r) => setImmediate(r));
+    const l = rows[i];
     if (!l || l.includes('"type":"api-request')) continue;
     let e: Entry;
     try {

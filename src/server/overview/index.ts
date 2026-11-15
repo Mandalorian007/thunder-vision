@@ -127,7 +127,7 @@ export async function overviewForSession(name: string) {
 export async function refreshSession(name: string) {
   const pane = (await claudePanes()).get(name);
   if (!pane) return null;
-  if (summaryState(pane, 0).running) return false;
+  if (!pane.transcript || summaryState(pane, 0).running) return false;
   // Not awaited: it takes ~30s. The page polls for the result.
   refreshSummary(pane).catch((err) =>
     console.error("[overview] summary failed:", err),
@@ -137,8 +137,9 @@ export async function refreshSession(name: string) {
 
 /**
  * From the scheduler tick: refreshes sessions whose interval is up, if
- * anything worth reading happened since. A failure retries once after
- * RETRY_MS; after MAX_FAILURES the schedule waits for a manual refresh.
+ * anything worth reading happened since. A failure is retried after
+ * RETRY_MS; after MAX_FAILURES in a row the schedule waits for a manual
+ * refresh.
  */
 export async function overviewTick() {
   if (Date.now() - lastSweep > SWEEP_EVERY_MS) {

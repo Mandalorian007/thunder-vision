@@ -46,7 +46,6 @@ function idleLabel(seconds: number) {
   return `${Math.floor(seconds / 86_400)}d`;
 }
 
-/** New Overview events since you last looked; red if something failed. */
 /** "thunder-vision" → "tv", "thunder" → "th": rail labels. */
 function abbrev(name: string) {
   const parts = name.split(/[-_.\s]+/).filter(Boolean);

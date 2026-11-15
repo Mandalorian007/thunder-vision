@@ -100,8 +100,8 @@ export type Facts = {
 export type OverviewBadge = {
   /** A Claude session runs in one of this tmux session's panes. */
   claude: true;
+  /** Counts toward the Overview's "new since you opened it" highlight. */
   newEvents: number;
-  alerts: number;
   agentsRunning: number;
   status: string | null;
 };

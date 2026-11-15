@@ -42,7 +42,8 @@ type State = {
 
 type Live = {
   state: State | null;
-  partial: string;
+  /** Bytes after the last newline read: a line still being written. */
+  partial: Buffer;
   /** Bash calls worth reporting, until their result arrives. */
   bash: Map<string, { kind: "release" | "commit"; text: string }>;
   updating: Promise<void> | null;
@@ -593,11 +594,12 @@ async function readNew(st: State, l: Live, reader: Reader) {
       );
       if (!bytesRead) break;
       st.cursor += bytesRead;
-      const lines = (l.partial + buf.toString("utf8", 0, bytesRead)).split(
-        "\n",
-      );
-      l.partial = lines.pop() ?? "";
-      for (const line of lines) {
+      // Split on newline bytes, so a character cut at the chunk edge stays whole.
+      const data = Buffer.concat([l.partial, buf.subarray(0, bytesRead)]);
+      const end = data.lastIndexOf(0x0a);
+      l.partial = Buffer.from(data.subarray(end + 1));
+      if (end < 0) continue;
+      for (const line of data.toString("utf8", 0, end).split("\n")) {
         if (!line || line.includes('"type":"api-request')) continue;
         try {
           reader.apply(JSON.parse(line));
@@ -617,15 +619,8 @@ async function update(pane: ClaudePane, l: Live) {
     l.state.v !== STATE_V ||
     l.state.sessionId !== pane.sessionId
   ) {
-    l.state = load(pane) ?? {
-      v: STATE_V,
-      sessionId: pane.sessionId,
-      transcript: pane.transcript,
-      cursor: 0,
-      facts: freshFacts(pane),
-      notified: [],
-    };
-    l.partial = "";
+    l.state = load(pane) ?? fresh(pane, pane.transcript);
+    l.partial = Buffer.alloc(0);
     l.bash.clear();
     l.metaAt = 0;
   }
@@ -640,7 +635,12 @@ async function update(pane: ClaudePane, l: Live) {
   const reader = new Reader(st, l);
   let changed = await readNew(st, l, reader);
   if (changed === null) {
-    l.state = null;
+    // The transcript shrank: start over from its first byte, not from the
+    // saved state, which has the same too-large cursor.
+    l.state = fresh(pane, pane.transcript);
+    l.partial = Buffer.alloc(0);
+    l.bash.clear();
+    l.metaAt = 0;
     return update(pane, l);
   }
   if (Date.now() - l.metaAt > META_EVERY_MS) {
@@ -656,7 +656,22 @@ async function update(pane: ClaudePane, l: Live) {
     st.notified.splice(0, st.notified.length - 4000);
   if (f.counts.spawns >= 3 || f.counts.messages >= 3) f.kind = "program";
   f.generatedAt = new Date().toISOString();
-  writeJson(path.join(ensureDir(pane.paneId), "state.json"), st);
+  // Saved before the unfinished line, so a restart reads it again whole.
+  writeJson(path.join(ensureDir(pane.paneId), "state.json"), {
+    ...st,
+    cursor: st.cursor - l.partial.length,
+  });
+}
+
+function fresh(pane: ClaudePane, transcript: string): State {
+  return {
+    v: STATE_V,
+    sessionId: pane.sessionId,
+    transcript,
+    cursor: 0,
+    facts: freshFacts(pane),
+    notified: [],
+  };
 }
 
 function liveFor(paneId: string) {
@@ -664,7 +679,7 @@ function liveFor(paneId: string) {
   if (!l) {
     l = {
       state: null,
-      partial: "",
+      partial: Buffer.alloc(0),
       bash: new Map(),
       updating: null,
       updatedAt: 0,
@@ -705,16 +720,10 @@ export function badgeFor(pane: ClaudePane): OverviewBadge {
   const f = l.state?.facts;
   const seen = f?.seenAt ?? "";
   let newEvents = 0;
-  let alerts = 0;
-  for (const e of f?.events ?? []) {
-    if (e.at <= seen) continue;
-    newEvents += e.weight;
-    if (e.alert) alerts++;
-  }
+  for (const e of f?.events ?? []) if (e.at > seen) newEvents += e.weight;
   return {
     claude: true,
     newEvents,
-    alerts,
     agentsRunning:
       f?.agents.filter((a) => a.lifecycle === "running").length ?? 0,
     status: pane.status,

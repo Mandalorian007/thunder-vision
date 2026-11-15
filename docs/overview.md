@@ -57,7 +57,7 @@ restarts and renames.
 Scheduled refreshes:
 
 - skip when nothing notable has happened since the last summary,
-- retry once 10 minutes after a failure,
+- retry 10 minutes after a failure,
 - pause after three failures in a row, until you refresh by hand.
 
 A failed refresh keeps the previous summary on screen with a red note.
