@@ -49,6 +49,7 @@ folders you made.
 ## Conventions and gotchas
 
 - pnpm only. Don't commit unless asked.
+- The Overview only reads Claude's files; its model call (`src/server/overview/summary.ts`) stays toolless, settings-free and budget-capped, and the transcript it reads is untrusted data. Bump `STATE_V` in `facts.ts` when parsing changes so saved state re-parses.
 - Plan usage comes from the Agent SDK (`src/server/usage.ts`), which lets
   Claude Code use its own login. Don't read the Claude login token or call the
   undocumented `/api/oauth/usage` endpoint: Anthropic's terms bar third-party

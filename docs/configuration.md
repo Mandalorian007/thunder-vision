@@ -11,8 +11,8 @@ restarts when you save it.
 | `PORT`              | `7700`                 | Listen port, always on `127.0.0.1` ([why][sec])      |
 | `TV_ALLOWED_LOGINS` | _(anyone on tailnet)_  | Comma-separated Tailscale logins allowed in          |
 | `TMUX_BIN`          | `tmux`                 | tmux binary (set when PATH is minimal, e.g. launchd) |
-| `CLAUDE_BIN`        | _(see purpose)_        | `claude` for workflows and plan usage ([more][wf])   |
-| `TV_DATA_DIR`       | `~/.thunder-vision`    | Runs, worktrees, local workflows, uploads            |
+| `CLAUDE_BIN`        | _(see purpose)_        | `claude` for workflows, usage, Overview ([more][wf]) |
+| `TV_DATA_DIR`       | `~/.thunder-vision`    | Runs, worktrees, workflows, uploads, Overview        |
 | `TV_LAUNCHD_LABEL`  | `local.thunder-vision` | launchd label used by `scripts/install-launchd.sh`   |
 
 [sec]: ../README.md#security

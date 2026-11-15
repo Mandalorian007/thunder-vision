@@ -44,3 +44,12 @@
   ([worktrees](workflows.md#worktrees)).
 - **A run says lost.** Its runner process died mid-run, usually a reboot or
   sleep. If it had a worktree, that's kept; discard it from the run's page.
+- **No Overview tab on a Claude session.** It needs Claude Code's session
+  record (`~/.claude/sessions/<pid>.json`) to name the tmux pane, which
+  happens when `claude` starts inside tmux. A session started outside tmux,
+  or with an older Claude Code, won't show one; restart `claude`
+  in the pane.
+- **Overview summary failed or is paused.** The red note gives the error;
+  `[overview]` lines in the log have more. Usually Claude Code isn't logged in
+  for this user or the plan is out of usage. Scheduled refreshes pause after
+  three failures; press **Refresh** to resume.

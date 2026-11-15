@@ -56,23 +56,33 @@ lives on.
 - `bin/tv-claude`: `claude -p` in auto mode with stream-json, on PATH in steps
 - `src/server/uploads.ts`: files from the paperclip, saved under
   `~/.thunder-vision/uploads/` with shell-safe names and pruned after a week
+- `src/server/overview/`: the Overview tab. `resolve.ts` maps tmux panes to
+  Claude sessions (`~/.claude/sessions/<pid>.json`) and their transcripts;
+  `facts.ts` parses a transcript incrementally into agents, events and PRs
+  (`state.json` per pane, re-parsed when `STATE_V` changes); `digest.ts`
+  turns it into the Haiku input with `[eN]` line ids; `summary.ts` runs the
+  locked, schema-checked `claude -p` call and resolves citations; `index.ts`
+  serves the routes, the per-session interval (`@tv_overview_every`) and
+  `overviewTick()`, called from the scheduler. `src/lib/overview.ts` holds
+  the shared types
 - `src/lib/workflows.ts`: workflow and run types, cron → words, the
   `$TV_OUTPUT` parser, shared with the UI; `src/lib/open-session.ts`: opening
   a tmux session from the UI (Continue in session, Edit with Claude)
 - `src/lib/names.ts`: session naming, shared by the palette preview and the
   server; `src/lib/protocol.ts`: WebSocket messages and close codes
-- `src/app/api/`: `sessions`, `dirs`, `usage`, `workflows`, `runs` and
-  `uploads` routes
+- `src/app/api/`: `sessions`, `dirs`, `usage`, `workflows`, `runs`,
+  `overview` and `uploads` routes
 - `src/components/`: `thunder-vision.tsx` (shell, polling, dialogs),
   `session-sidebar.tsx`, `settings-menu.tsx`, `usage-meters.tsx`,
   `new-session-palette.tsx`, `rename-dialog.tsx`, `terminal-pane.tsx`,
-  `key-bar.tsx`, and for workflows `workflow-list.tsx`, `workflow-view.tsx`,
+  `key-bar.tsx`, `overview-view.tsx` (the Overview tab), `rich-text.tsx`
+  (markdown for reports and summaries), and for workflows `workflow-list.tsx`, `workflow-view.tsx`,
   `new-workflow-dialog.tsx`, `log-terminal.tsx`, `run-dots.tsx`;
   `sortable.tsx` is the drag-to-reorder shared by both lists (dnd-kit: the
   whole row with a mouse, a grip on touch, Move up / down in the menus); `ui/`
   is shadcn
 
-Workflow state is all in files, never in memory: the scheduler (loaded by
+Workflow and Overview state is all in files, never in memory: the scheduler (loaded by
 `server.ts`) and the API routes (bundled by Next) are separate copies of the
 module, and runs outlive server restarts. A `running` run whose runner pid is
 gone is marked `lost` when next read.
@@ -83,27 +93,31 @@ A tab's busy dot pulses while its window printed output in the last 5s.
 
 Mutating calls take JSON and need a same-origin `Origin` header.
 
-| Call                       | Body                                            | Returns                 |
-| -------------------------- | ----------------------------------------------- | ----------------------- |
-| `GET /api/sessions`        |                                                 | `TmuxSession[]`         |
-| `POST /api/sessions`       | `{dir, create?, git?, clone?, name?, command?}` | 201 `{name, sessions}`  |
-| `PATCH /api/sessions`      | `{name, to}`                                    | `{name, sessions}`      |
-| `DELETE /api/sessions`     | `{name}`                                        | `{sessions}`            |
-| `POST /api/sessions/live`  | `{name}` (leave copy mode)                      | `{sessions}`            |
-| `PUT /api/sessions/order`  | `{names}` (sidebar order; the rest follow)      | `{sessions}`            |
-| `GET /api/dirs`            |                                                 | folders under `TV_ROOT` |
-| `GET /api/usage`           |                                                 | `Usage` or `null`       |
-| `POST /api/usage`          |                                                 | same, checked now       |
-| `GET /api/workflows`       |                                                 | `WorkflowSummary[]`     |
-| `POST /api/workflows`      | `{dir, name}` (writes a template)               | 201 `{id, file, …}`     |
-| `PATCH /api/workflows`     | `{id, enabled}` (pause / resume the schedule)   | `{workflows}`           |
-| `PUT /api/workflows/order` | `{ids}` (sidebar order; the rest follow)        | `{workflows}`           |
-| `GET /api/runs?workflow=`  | `&run=` for one: `{run, summary, artifacts}`    | `Run[]`, newest first   |
-| `POST /api/runs`           | `{workflow, inputs?}` (run now)                 | `{run, runs}`           |
-| `PATCH /api/runs`          | `{workflow, run, action: "stop" \| "discard"}`  | `{runs}`                |
-| `DELETE /api/runs`         | `{workflow, run?}` (one, or all finished)       | `{runs}`                |
-| `GET /api/runs/artifact`   | `?workflow=&run=&path=`                         | the file                |
-| `POST /api/uploads`        | the file as the body, `X-File-Name` header      | `{path}` on this Mac    |
+| Call                         | Body                                            | Returns                 |
+| ---------------------------- | ----------------------------------------------- | ----------------------- |
+| `GET /api/sessions`          |                                                 | `TmuxSession[]`         |
+| `POST /api/sessions`         | `{dir, create?, git?, clone?, name?, command?}` | 201 `{name, sessions}`  |
+| `PATCH /api/sessions`        | `{name, to}`                                    | `{name, sessions}`      |
+| `DELETE /api/sessions`       | `{name}`                                        | `{sessions}`            |
+| `POST /api/sessions/live`    | `{name}` (leave copy mode)                      | `{sessions}`            |
+| `PUT /api/sessions/order`    | `{names}` (sidebar order; the rest follow)      | `{sessions}`            |
+| `GET /api/dirs`              |                                                 | folders under `TV_ROOT` |
+| `GET /api/usage`             |                                                 | `Usage` or `null`       |
+| `POST /api/usage`            |                                                 | same, checked now       |
+| `GET /api/workflows`         |                                                 | `WorkflowSummary[]`     |
+| `POST /api/workflows`        | `{dir, name}` (writes a template)               | 201 `{id, file, …}`     |
+| `PATCH /api/workflows`       | `{id, enabled}` (pause / resume the schedule)   | `{workflows}`           |
+| `PUT /api/workflows/order`   | `{ids}` (sidebar order; the rest follow)        | `{workflows}`           |
+| `GET /api/runs?workflow=`    | `&run=` for one: `{run, summary, artifacts}`    | `Run[]`, newest first   |
+| `POST /api/runs`             | `{workflow, inputs?}` (run now)                 | `{run, runs}`           |
+| `PATCH /api/runs`            | `{workflow, run, action: "stop" \| "discard"}`  | `{runs}`                |
+| `DELETE /api/runs`           | `{workflow, run?}` (one, or all finished)       | `{runs}`                |
+| `GET /api/runs/artifact`     | `?workflow=&run=&path=`                         | the file                |
+| `GET /api/overview`          | `?session=`                                     | `{facts, summary}`      |
+| `POST /api/overview`         | `{session}` (mark what's there as seen)         | `{ok}`                  |
+| `POST /api/overview/refresh` | `{session}` (summarize now)                     | `{started}`             |
+| `POST /api/overview/refresh` | `{session, every}` (0, 15, 30, 60 or 360 min)   | `{ok}`                  |
+| `POST /api/uploads`          | the file as the body, `X-File-Name` header      | `{path}` on this Mac    |
 
 `dir` is relative to `TV_ROOT`, or a `~/…` / absolute path. Errors come back as
 `{error}` with 400 (bad folder, git failure), 403 (cross-site, unknown host),

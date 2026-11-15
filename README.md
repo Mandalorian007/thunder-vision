@@ -21,6 +21,11 @@ the browser just detaches, so whatever's running keeps going.
   run in its own git worktree. A step timeline, live logs, a summary, outputs
   like the PR link, and "continue in session" to pick a failed run up in
   Claude. [Details](docs/workflows.md).
+- **Overview** for Claude sessions: a tab next to the terminal with where the
+  work stands. Progress by area, the big decisions, what's waiting on you and
+  what's next, summarized by Haiku with every claim linked to the transcript
+  lines behind it; plus running agents and what landed, counted by script.
+  Refresh by hand or every 15m–6h. [Details](docs/overview.md).
 - **Plan usage** in the sidebar: your session and weekly caps, as `/usage`
   shows them. [How it works](docs/plan-usage.md).
 - **Touch friendly.** A drawer sidebar on phones and a key bar with esc, tab,
@@ -94,6 +99,7 @@ This is a shell with no login of its own. Tailscale is the lock:
 
 - [Configuration](docs/configuration.md): settings, launchd, updating
 - [Workflows](docs/workflows.md): the file format, steps, worktrees, schedules
+- [Overview](docs/overview.md): what it shows, where it comes from, refreshing
 - [Plan usage](docs/plan-usage.md): where the numbers come from
 - [Development](docs/development.md): architecture, API, workflow
 - [Troubleshooting](docs/troubleshooting.md)
