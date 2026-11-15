@@ -313,7 +313,7 @@ const EVERY_LABEL: Record<number, string> = {
   15: "Every 15m",
   30: "Every 30m",
   60: "Every 1h",
-  120: "Every 2h",
+  360: "Every 6h",
 };
 
 /** The transcript lines behind a claim, so you can check or challenge it. */

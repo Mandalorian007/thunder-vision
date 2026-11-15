@@ -141,7 +141,7 @@ export type Summary = {
 };
 
 /** Minutes between scheduled refreshes; 0 is manual. */
-export const EVERY_CHOICES = [0, 15, 30, 60, 120] as const;
+export const EVERY_CHOICES = [0, 15, 30, 60, 360] as const;
 
 export type SummaryState = {
   summary: Summary | null;
