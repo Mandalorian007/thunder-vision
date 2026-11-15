@@ -145,18 +145,18 @@ function freshFacts(pane: ClaudePane): Facts {
 
 // ── Reading entries ───────────────────────────────────────────────────────
 
-type Entry = Record<string, unknown>;
-type Block = Record<string, unknown>;
+export type Entry = Record<string, unknown>;
+export type Block = Record<string, unknown>;
 
-const s = (v: unknown) => (typeof v === "string" ? v : "");
-const obj = (v: unknown) =>
+export const s = (v: unknown) => (typeof v === "string" ? v : "");
+export const obj = (v: unknown) =>
   v && typeof v === "object" && !Array.isArray(v) ? (v as Entry) : null;
-const num = (v: unknown) => {
+export const num = (v: unknown) => {
   const n = typeof v === "string" ? Number(v) : v;
   return typeof n === "number" && Number.isFinite(n) ? n : null;
 };
 
-function contentOf(e: Entry): { text: string; blocks: Block[] } {
+export function contentOf(e: Entry): { text: string; blocks: Block[] } {
   const c = obj(e.message)?.content;
   if (typeof c === "string") return { text: c, blocks: [] };
   if (!Array.isArray(c)) return { text: "", blocks: [] };
@@ -168,20 +168,20 @@ function contentOf(e: Entry): { text: string; blocks: Block[] } {
   return { text, blocks };
 }
 
-const tag = (text: string, name: string) =>
+export const tag = (text: string, name: string) =>
   new RegExp(`<${name}>([\\s\\S]*?)</${name}>`).exec(text)?.[1]?.trim() ?? "";
 
 /** What you typed, minus Claude Code's wrappers around slash commands. */
-function humanText(text: string) {
+export function humanText(text: string) {
   const cmd = tag(text, "command-name");
   if (cmd) return `${cmd} ${tag(text, "command-args")}`.trim();
   if (/^<(local-command|bash-|system-reminder)/.test(text.trim())) return "";
   return text;
 }
 
-const RELEASE =
+export const RELEASE =
   /\bgh pr merge\b|\bmerge-pr\b|\b(?:npm|pnpm|cargo) publish\b|\bgit tag\b/;
-const COMMIT = /\bgit commit\b/;
+export const COMMIT = /\bgit commit\b/;
 
 /** 'Agent "X" completed' → "completed", when the row already names X. */
 function agentNote(summary: string, name: string | undefined) {

@@ -1,3 +1,4 @@
+import { overviewTick } from "./overview";
 import {
   listWorkflows,
   migrate,
@@ -16,6 +17,10 @@ const LATE_MS = 2 * 60_000;
  * catch-up run, not one per miss.
  */
 function tick() {
+  // Overview summaries on their intervals; never blocks the workflows.
+  overviewTick().catch((err) =>
+    console.error("[overview] scheduled refresh failed:", err),
+  );
   const now = new Date();
   let workflows;
   try {

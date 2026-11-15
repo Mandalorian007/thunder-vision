@@ -105,3 +105,56 @@ export type OverviewBadge = {
   agentsRunning: number;
   status: string | null;
 };
+
+// ── The Haiku summary ─────────────────────────────────────────────────────
+
+/** A transcript line the model pointed to, kept so you can check its claim. */
+export type Cite = { uuid: string; at: string; who: string; text: string };
+
+export type AreaState = "done" | "on-track" | "at-risk" | "blocked" | "idle";
+
+export type SummaryItem = { text: string; cites: Cite[] };
+
+export type Summary = {
+  goal: string;
+  headline: string;
+  areas: {
+    name: string;
+    state: AreaState;
+    /** Only when the session itself reported counts for the area. */
+    done: number | null;
+    total: number | null;
+    summary: string;
+    now: string;
+    next: string;
+    cites: Cite[];
+  }[];
+  decisions: {
+    decision: string;
+    why: string;
+    by: "pm" | "you";
+    cites: Cite[];
+  }[];
+  needsYou: SummaryItem[];
+  recent: SummaryItem[];
+  next: SummaryItem[];
+};
+
+/** Minutes between scheduled refreshes; 0 is manual. */
+export const EVERY_CHOICES = [0, 15, 30, 60, 120] as const;
+
+export type SummaryState = {
+  summary: Summary | null;
+  generatedAt: string | null;
+  model: string | null;
+  costUsd: number | null;
+  /** Transcript lines it read. */
+  lines: number;
+  running: boolean;
+  /** The last attempt failed; the summary shown is the one before. */
+  error: { at: string; message: string } | null;
+  failures: number;
+  /** Scheduled refreshes stop after repeated failures, until a manual one. */
+  paused: boolean;
+  every: number;
+};

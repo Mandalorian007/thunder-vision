@@ -1,13 +1,19 @@
 import type { NextRequest } from "next/server";
 import { body, crossSite, error, noStore } from "@/server/http";
-import { factsForSession, markSessionSeen } from "@/server/overview";
+import { markSessionSeen, overviewForSession } from "@/server/overview";
 
-/** ?session=name → the facts counted from its Claude transcript. */
+/**
+ * ?session=name → the facts counted from its Claude transcript, and the
+ * last Haiku summary with its refresh state.
+ */
 export async function GET(req: NextRequest) {
   const name = req.nextUrl.searchParams.get("session") ?? "";
-  const found = await factsForSession(name);
+  const found = await overviewForSession(name);
   if (!found) return error(404, "No Claude session there");
-  return Response.json({ facts: found.facts }, { headers: noStore });
+  return Response.json(
+    { facts: found.facts, summary: found.summary },
+    { headers: noStore },
+  );
 }
 
 /** { session } → marks what's there now as seen, clearing the badge. */

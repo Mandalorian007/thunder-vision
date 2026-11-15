@@ -705,7 +705,7 @@ function newRunId(wfId: string, now: Date) {
 }
 
 /** ~/.local/bin isn't on a login shell's PATH (it's added in .zshrc). */
-function claudeBin() {
+export function claudeBin() {
   if (process.env.CLAUDE_BIN) return process.env.CLAUDE_BIN;
   const local = path.join(home, ".local/bin/claude");
   return existsSync(local) ? local : "claude";
