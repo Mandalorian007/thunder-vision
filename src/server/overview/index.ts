@@ -1,8 +1,10 @@
 import { execFile } from "node:child_process";
+import { readdirSync, rmSync, statSync } from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import { EVERY_CHOICES, type OverviewBadge } from "@/lib/overview";
 import { cleanEnv, TMUX_BIN, type TmuxSession } from "../tmux";
-import { badgeFor, factsFor, markSeen } from "./facts";
+import { badgeFor, factsFor, markSeen, OVERVIEW_DIR } from "./facts";
 import { claudePanes } from "./resolve";
 import {
   lastAttempt,
@@ -13,6 +15,33 @@ import {
 } from "./summary";
 
 const run = promisify(execFile);
+
+const SWEEP_EVERY_MS = 60 * 60_000;
+/** A pane's folder outlives its Claude session by this long. */
+const KEEP_MS = 7 * 86_400_000;
+let lastSweep = 0;
+
+/** Removes overview folders of panes gone for a week. */
+function sweep(live: Set<string>) {
+  let dirs: string[];
+  try {
+    dirs = readdirSync(/*turbopackIgnore: true*/ OVERVIEW_DIR);
+  } catch {
+    return;
+  }
+  for (const d of dirs) {
+    if (!/^pane-\d+$/.test(d) || live.has(`%${d.slice(5)}`)) continue;
+    const dir = path.join(OVERVIEW_DIR, d);
+    try {
+      if (
+        Date.now() - statSync(/*turbopackIgnore: true*/ dir).mtimeMs <
+        KEEP_MS
+      )
+        continue;
+      rmSync(/*turbopackIgnore: true*/ dir, { recursive: true, force: true });
+    } catch {}
+  }
+}
 
 export type { ClaudePane } from "./resolve";
 
@@ -112,6 +141,10 @@ export async function refreshSession(name: string) {
  * RETRY_MS; after MAX_FAILURES the schedule waits for a manual refresh.
  */
 export async function overviewTick() {
+  if (Date.now() - lastSweep > SWEEP_EVERY_MS) {
+    lastSweep = Date.now();
+    sweep(new Set([...(await claudePanes()).values()].map((p) => p.paneId)));
+  }
   const every = await everyBySession();
   if (!every.size) return;
   const panes = await claudePanes();
@@ -119,7 +152,7 @@ export async function overviewTick() {
   for (const [name, minutes] of every) {
     const pane = panes.get(name);
     if (!pane) continue;
-    const last = lastAttempt(pane.paneId);
+    const last = lastAttempt(pane);
     if (last.failures >= MAX_FAILURES) continue;
     const since = last.generatedAt ? Date.parse(last.generatedAt) : 0;
     if (last.failures > 0) {

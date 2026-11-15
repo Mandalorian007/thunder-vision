@@ -25,6 +25,8 @@ export const MAX_FAILURES = 3;
 export const RETRY_MS = 10 * 60_000;
 
 type Saved = {
+  /** The Claude process it's about: tmux reuses pane ids after a restart. */
+  pid?: number;
   summary: Summary | null;
   generatedAt: string | null;
   model: string | null;
@@ -37,18 +39,19 @@ type Saved = {
 const file = (paneId: string) => path.join(paneDir(paneId), "summary.json");
 const lockFile = (paneId: string) => path.join(paneDir(paneId), "summary.lock");
 
-function saved(paneId: string): Saved {
-  return (
-    readJson<Saved>(file(paneId)) ?? {
-      summary: null,
-      generatedAt: null,
-      model: null,
-      costUsd: null,
-      lines: 0,
-      error: null,
-      failures: 0,
-    }
-  );
+function saved(pane: Pick<ClaudePane, "paneId" | "pid">): Saved {
+  const s = readJson<Saved>(file(pane.paneId));
+  return s && s.pid === pane.pid
+    ? s
+    : {
+        summary: null,
+        generatedAt: null,
+        model: null,
+        costUsd: null,
+        lines: 0,
+        error: null,
+        failures: 0,
+      };
 }
 
 function running(paneId: string) {
@@ -85,7 +88,7 @@ function unlock(paneId: string) {
 }
 
 export function summaryState(pane: ClaudePane, every: number): SummaryState {
-  const s = saved(pane.paneId);
+  const s = saved(pane);
   return {
     ...s,
     running: running(pane.paneId),
@@ -94,8 +97,8 @@ export function summaryState(pane: ClaudePane, every: number): SummaryState {
   };
 }
 
-export function lastAttempt(paneId: string) {
-  const s = saved(paneId);
+export function lastAttempt(pane: ClaudePane) {
+  const s = saved(pane);
   return {
     generatedAt: s.generatedAt,
     failedAt: s.error?.at ?? null,
@@ -321,7 +324,7 @@ function clean(raw: Raw, cite: (ids: unknown) => Cite[]): Summary {
  */
 export async function refreshSummary(pane: ClaudePane): Promise<boolean> {
   if (!pane.transcript || !lock(pane.paneId)) return false;
-  const prev = saved(pane.paneId);
+  const prev = saved(pane);
   try {
     const digest = await buildDigest(pane.transcript);
     if (!digest.lines) return false;
@@ -358,6 +361,7 @@ export async function refreshSummary(pane: ClaudePane): Promise<boolean> {
         ? Object.keys(out.modelUsage)
         : [];
     writeJson(file(pane.paneId), {
+      pid: pane.pid,
       summary,
       generatedAt: new Date().toISOString(),
       model: usage[0] ?? MODEL,
@@ -373,6 +377,7 @@ export async function refreshSummary(pane: ClaudePane): Promise<boolean> {
     console.error(`[overview] summary for ${pane.session} failed:`, message);
     writeJson(file(pane.paneId), {
       ...prev,
+      pid: pane.pid,
       error: { at: new Date().toISOString(), message },
       failures: prev.failures + 1,
     } satisfies Saved);
