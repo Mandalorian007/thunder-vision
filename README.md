@@ -32,7 +32,13 @@ the browser just detaches, so whatever's running keeps going.
   ctrl, arrows and the other keys iOS lacks. Drag a finger to scroll back
   (with momentum; tmux's `mouse on` needed), then **Back to live**. iOS
   dictation types cleanly.
-- **Attach files from anywhere.** The key bar's paperclip (or a drop or an
+- **Talk to Claude.** The mic at the top right types what you say into the
+  session: hold it and let go, or tap to start and tap to stop. A rough draft
+  shows over the terminal as you speak, and at each pause that phrase is
+  transcribed properly and typed while you keep talking. It runs whisper.cpp
+  on the Mac (no
+  cloud, no key) and never presses Enter. [Setup](docs/configuration.md#voice).
+- **Attach files from anywhere.** The paperclip next to the mic (or a drop or an
   image paste on desktop) uploads a file to the Mac and types its path, so
   Claude can see a screenshot from your phone. Uploads go to
   `~/.thunder-vision/uploads/` (max 25 MB) and are cleared after a week.

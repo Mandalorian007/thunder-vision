@@ -20,6 +20,7 @@ import {
   useSyncExternalStore,
 } from "react";
 import { toast } from "sonner";
+import { AttachButton } from "@/components/attach-button";
 import { IconButton, type TooltipSide } from "@/components/icon-button";
 import { KeyBar } from "@/components/key-bar";
 import { NewSessionPalette } from "@/components/new-session-palette";
@@ -48,6 +49,7 @@ import { Button } from "@/components/ui/button";
 import { Kbd } from "@/components/ui/kbd";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { UsageMeters, useUsage } from "@/components/usage-meters";
+import { VoiceButton, VoiceCaption } from "@/components/voice-button";
 import { WorkflowList } from "@/components/workflow-list";
 import { WorkflowView } from "@/components/workflow-view";
 import type { OverviewBadge } from "@/lib/overview";
@@ -471,6 +473,22 @@ export function ThunderVision({
     return () => window.removeEventListener("paste", onPaste, true);
   }, []);
 
+  /** Where a recording's text goes: the session it was started in. */
+  const voiceSink = () => {
+    const target = active;
+    if (!target) return null;
+    return (text: string) => panes.current.get(target)?.send(text);
+  };
+
+  // Talk and attach: the two ways in besides typing. In the header on
+  // phones, in the bar above the terminal from md up.
+  const inputActions = (
+    <>
+      <VoiceButton sink={voiceSink} />
+      <AttachButton onAttach={attach} />
+    </>
+  );
+
   const bumpFont = (delta: number) =>
     setFontSize(Math.min(MAX_FONT, Math.max(MIN_FONT, fontSize + delta)));
 
@@ -636,6 +654,13 @@ export function ThunderVision({
               </>
             )}
             <div className="ml-auto flex items-center">
+              {activeSession && inputActions}
+              {activeSession && (
+                <span
+                  aria-hidden
+                  className="mx-1 h-5 w-px shrink-0 bg-border"
+                />
+              )}
               <IconButton label="New session" onClick={openPalette}>
                 <Plus />
               </IconButton>
@@ -682,13 +707,19 @@ export function ThunderVision({
               onSwitchSession={select}
             />
           )}
-          {hasTabs && activeSession && (
-            <ViewTabs
+          {activeSession && (
+            <SessionBar
+              tabs={hasTabs}
               overview={overviewShown}
               badge={activeSession.overview}
               onOverview={(on) => showOverview(activeSession.name, on)}
+              actions={inputActions}
             />
           )}
+          {/* What's being heard, over the top of the terminal. */}
+          <div className="relative shrink-0">
+            <VoiceCaption />
+          </div>
           {overviewShown && activeSession && (
             <OverviewView
               key={activeSession.name}
@@ -720,7 +751,6 @@ export function ThunderVision({
             ctrl={ctrl}
             onToggleCtrl={() => setCtrlArmed(!ctrl)}
             onKey={sendKey}
-            onAttach={attach}
           />
         )}
       </div>
@@ -795,15 +825,23 @@ export function ThunderVision({
   );
 }
 
-/** Terminal | Overview, above sessions that have Claude in them. */
-function ViewTabs({
+/**
+ * Above the terminal: Terminal | Overview for sessions that have had Claude
+ * in them, and from md up the talk and attach buttons on the right. On a
+ * phone those are in the header, so a session without tabs has no bar.
+ */
+function SessionBar({
+  tabs,
   overview,
   badge,
   onOverview,
+  actions,
 }: {
+  tabs: boolean;
   overview: boolean;
   badge: OverviewBadge | undefined;
   onOverview(on: boolean): void;
+  actions: React.ReactNode;
 }) {
   const tab = (on: boolean, label: string, icon: React.ReactNode) => (
     <button
@@ -823,17 +861,26 @@ function ViewTabs({
   );
   return (
     <div
-      role="tablist"
-      className="flex h-9 shrink-0 items-center gap-1 border-b bg-background px-2 pointer-coarse:h-11"
-    >
-      {tab(false, "Terminal", <SquareTerminal />)}
-      {tab(true, "Overview", <LayoutDashboard />)}
-      {!!badge?.agentsRunning && (
-        <span className="ml-auto truncate pr-1 text-xs text-muted-foreground">
-          {badge.agentsRunning} agent{badge.agentsRunning === 1 ? "" : "s"}{" "}
-          running
-        </span>
+      className={cn(
+        "h-9 shrink-0 items-center gap-1 border-b bg-background px-2 pointer-coarse:h-11",
+        tabs ? "flex" : "hidden md:flex",
       )}
+    >
+      {tabs && (
+        <div role="tablist" className="flex items-center gap-1">
+          {tab(false, "Terminal", <SquareTerminal />)}
+          {tab(true, "Overview", <LayoutDashboard />)}
+        </div>
+      )}
+      <div className="ml-auto flex min-w-0 items-center gap-1">
+        {tabs && !!badge?.agentsRunning && (
+          <span className="truncate pr-1 text-xs text-muted-foreground">
+            {badge.agentsRunning} agent{badge.agentsRunning === 1 ? "" : "s"}{" "}
+            running
+          </span>
+        )}
+        <div className="hidden shrink-0 items-center md:flex">{actions}</div>
+      </div>
     </div>
   );
 }

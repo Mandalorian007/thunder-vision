@@ -258,7 +258,7 @@ Old runs are pruned past `keep`, except ones whose worktree was kept.
 │  ├─ artifacts/                   $TV_ARTIFACTS
 │  └─ steps/<n>-<id>.{sh,out,jsonl} each step's script, outputs, Claude JSON
 ├─ worktrees/<workflow>/<run>/     worktrees, while running or kept
-└─ uploads/                        files from the key bar's paperclip
+└─ uploads/                        files from the paperclip
 ```
 
 Artifacts are served as downloads, except plain text, images and PDFs,

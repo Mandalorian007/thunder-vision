@@ -54,6 +54,13 @@ lives on.
   timeout, outputs, Claude's stream-json → readable log); `log-tail.ts`:
   `/ws/log`; `data.ts`: `DATA_DIR` and the one-time move from `.thunder/`
 - `bin/tv-claude`: `claude -p` in auto mode with stream-json, on PATH in steps
+- `src/server/transcribe.ts`: a phrase (16 kHz WAV from the page) → text,
+  on a warm `whisper-server` (`whisper.ts` starts one per model and stops it
+  when idle), falling back to ffmpeg + `whisper-cli`; `src/lib/voice.ts`
+  holds the page's side, pure: the hold-or-tap gesture, cutting at pauses,
+  downsampling, WAV and dropping what whisper says to silence;
+  `voice-button.tsx` taps the mic, shows the live draft (`VoiceCaption`) and
+  types each phrase in order
 - `src/server/uploads.ts`: files from the paperclip, saved under
   `~/.thunder-vision/uploads/` with shell-safe names and pruned after a week
 - `src/server/overview/`: the Overview tab. `resolve.ts` maps tmux panes to
@@ -71,12 +78,13 @@ lives on.
 - `src/lib/names.ts`: session naming, shared by the palette preview and the
   server; `src/lib/protocol.ts`: WebSocket messages and close codes
 - `src/app/api/`: `sessions`, `dirs`, `usage`, `workflows`, `runs`,
-  `overview` and `uploads` routes
+  `overview`, `uploads` and `transcribe` routes
 - `src/components/`: `thunder-vision.tsx` (shell, polling, dialogs),
   `session-sidebar.tsx`, `settings-menu.tsx`, `usage-meters.tsx`,
   `new-session-palette.tsx`, `rename-dialog.tsx`, `terminal-pane.tsx`,
-  `key-bar.tsx`, `overview-view.tsx` (the Overview tab), `rich-text.tsx`
-  (markdown for reports and summaries), and for workflows `workflow-list.tsx`, `workflow-view.tsx`,
+  `key-bar.tsx`, `voice-button.tsx` and `attach-button.tsx` (the mic and
+  paperclip at the top right), `overview-view.tsx` (the Overview tab),
+  `rich-text.tsx` (markdown for reports and summaries), and for workflows `workflow-list.tsx`, `workflow-view.tsx`,
   `new-workflow-dialog.tsx`, `log-terminal.tsx`, `run-dots.tsx`;
   `sortable.tsx` is the drag-to-reorder shared by both lists (dnd-kit: the
   whole row with a mouse, a grip on touch, Move up / down in the menus); `ui/`
@@ -118,6 +126,12 @@ Mutating calls take JSON and need a same-origin `Origin` header.
 | `POST /api/overview/refresh` | `{session}` (summarize now)                     | `{started}`             |
 | `POST /api/overview/refresh` | `{session, every}` (0, 15, 30, 60 or 360 min)   | `{ok}`                  |
 | `POST /api/uploads`          | the file as the body, `X-File-Name` header      | `{path}` on this Mac    |
+| `POST /api/transcribe`       | audio as the body (`?draft=1`, `?warm=1`)       | `{text}`                |
+
+`/api/transcribe` takes 16 kHz mono WAV (the page sends that) or any format
+ffmpeg reads, with its `Content-Type`. `?draft=1` is the quick pass of the
+phrase so far (WAV only, 503 without `whisper-server`); `?warm=1`, with no
+body, starts the models and returns 204.
 
 `dir` is relative to `TV_ROOT`, or a `~/…` / absolute path. Errors come back as
 `{error}` with 400 (bad folder, git failure), 403 (cross-site, unknown host),
